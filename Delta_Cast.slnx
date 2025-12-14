@@ -1,0 +1,8 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Delta_Cast/Delta_Cast.vcxproj" Id="76fd3705-dd9b-43c2-97a0-434a39804741" />
+  <Project Path="Delta_Cast_GUI/Delta_Cast_GUI.vcxproj" Id="7230425f-94b2-4db8-9a98-b0ef1634b5ab" />
+</Solution>

@@ -1,0 +1,7 @@
+LIBRARY Delta_Cast
+EXPORTS
+    DllMain private
+    DllGetClassObject private
+    DllCanUnloadNow private
+    DllRegisterServer private
+    DllUnregisterServer private

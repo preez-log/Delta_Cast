@@ -1,0 +1,44 @@
+# ---------------------------------------------------------------------
+# Visual Studio & C++ Git Ignore for Delta_Cast
+# ---------------------------------------------------------------------
+
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+build/
+.vs/
+*.user
+*.suo
+*.opensdf
+*.sdf
+*.ipch
+*.ap
+*.aps
+*.idb
+*.ncp
+*.obj
+*.pch
+*.sbr
+*.tlb
+*.pdb
+*.iobj
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.tlog
+*.ilk
+*.ico
+*.lastbuildstate
+*.unsuccessfulbuild
+*.exe
+*.dll
+*.lib
+*.exp
+Thumbs.db
+Desktop.ini
+
+# !lib/SomeLibrary.lib
+# !bin/SomeDll.dll
