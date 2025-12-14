@@ -6,9 +6,14 @@ Developed by preez in Studio Delta Works
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows_x64-lightgrey.svg)
-![Build](https://img.shields.io/badge/build-Visual_Studio_2022-purple.svg)
+![Build](https://img.shields.io/badge/build-Visual_Studio_2026-purple.svg)
 
 [🇺🇸 English Version](README_EN.md) 👈 Click here for English
+
+
+## 알려진 문제
+DJMAX Respect V 호환 XignCode3 안티치트 정책으로 인한 E019100B 에러 발생
+개발사 웰비아에 요청을 해둔 상태이며, 추후 업데이트 예정입니다.
 
 ---
 
