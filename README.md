@@ -10,6 +10,11 @@ Developed by preez in Studio Delta Works
 
 [🇺🇸 English Version](README_EN.md) 👈 Click here for English
 
+
+## 알려진 문제
+DJMAX Respect V 호환 XignCode3 안티치트 정책으로 인한 E019100B 에러 발생
+개발사 웰비아에 요청을 해둔 상태이며, 추후 업데이트 예정입니다.
+
 ---
 
 ## 소개 
