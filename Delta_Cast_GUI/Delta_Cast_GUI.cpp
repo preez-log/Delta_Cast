@@ -6,6 +6,7 @@
 #include <mmdeviceapi.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <shellapi.h>
+#include "Resource.h"
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -265,7 +266,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
         sizeof(WNDCLASSEX), 
         CS_HREDRAW | CS_VREDRAW, WndProc, 0, 0, hInstance, 
         NULL, LoadCursor(NULL, IDC_ARROW), (HBRUSH)(COLOR_WINDOW + 1), 
-        NULL, L"ConfigCls", NULL };
+        NULL, L"ConfigCls", LoadIcon(hInstance, MAKEINTRESOURCE(IDI_SMALL)) };
 
     RegisterClassExW(&wcex);
 
