@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <initguid.h>
 
 DEFINE_GUID(CLSID_Delta_Cast,

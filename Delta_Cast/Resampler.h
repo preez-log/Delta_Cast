@@ -1,4 +1,4 @@
-#pragma once
+Ôªø#pragma once
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -14,15 +14,15 @@ public:
     size_t Process(const float* input, size_t inCount, float* output, size_t maxOutCount) {
         if (inCount == 0 || !output) return 0;
 
-        // ∫Ò¿≤¿Ã 1.0 ¿Ã∏È ∫πªÁ
+        // ÎπÑÏú®Ïù¥ 1.0 Ïù¥Î©¥ Î≥µÏÇ¨
         if (std::abs(m_ratio - 1.0) < 0.0001) {
             size_t copyCount = (inCount < maxOutCount) ? inCount : maxOutCount;
             memcpy(output, input, copyCount * sizeof(float));
             return copyCount;
         }
         size_t outGenerated = 0;
-        // ∏Æª˘«√∏µ ∑Á«¡
-        // m_readIndex «ˆ¿Á ¿–±‚ ¿ßƒ°
+        // Î¶¨ÏÉòÌîåÎßÅ Î£®ÌîÑ
+        // m_readIndex ÌòÑÏû¨ ÏùΩÍ∏∞ ÏúÑÏπò
         while (m_readIndex < inCount - 1 && outGenerated < maxOutCount) {
             size_t index = (size_t)m_readIndex;
             float frac = (float)(m_readIndex - index);
@@ -30,13 +30,13 @@ public:
             float val1 = input[index];
             float val2 = input[index + 1];
 
-            // º±«¸ ∫∏∞£ 
+            // ÏÑ†Ìòï Î≥¥Í∞Ñ 
             output[outGenerated++] = val1 * (1.0f - frac) + val2 * frac;
 
             m_readIndex += m_ratio;
         }
 
-        // ≥≤¿∫ ¿Œµ¶Ω∫ √≥∏Æ
+        // ÎÇ®ÏùÄ Ïù∏Îç±Ïä§ Ï≤òÎ¶¨
         m_readIndex -= inCount;
         if (m_readIndex < 0.0) m_readIndex = 0.0;
 

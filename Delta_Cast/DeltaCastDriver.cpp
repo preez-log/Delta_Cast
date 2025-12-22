@@ -1,14 +1,21 @@
-#include "DeltaCastDriver.h"
+ï»¿#include "DeltaCastDriver.h"
 #include "DeltaCastGuids.h"
 #include <windows.h>
 #include <stdio.h>
 #include <string>
 
+#ifdef DELTA_ENGINE_INTEGRATION
+#include "DiagnosticsTypes.h"
+#include "RingBuffer.h" // ê¸°ì¡´ RingBuffer ì¬ì‚¬ìš©
+// ì „ì—­ ë§ë²„í¼ í¬ì¸í„° (ì—”ì§„ì´ ì£¼ì…í•´ì¤Œ)
+LockFreeRingBuffer<DriftPacket>* g_pDiagnosticsBuffer = nullptr;
+#endif
+
 const float INT32_TO_FLOAT = 4.65661287e-10f;  // 1 / 2^31
 const float INT24_TO_FLOAT = 1.19209290e-7f;   // 1 / 2^23
 const float INT16_TO_FLOAT = 3.05175781e-5f;   // 1 / 2^15
 
-// µğ¹ö±× ·Î±× 
+// ë””ë²„ê·¸ ë¡œê·¸ 
 void DebugLog(const char* fmt, ...) {
 #ifdef _DEBUG
     char buf[2048];
@@ -35,11 +42,11 @@ void LogGUID(const char* prefix, REFIID riid) {
 const IID kIID_IASIO = { 0x5B96C901, 0x7195, 0x11D2, { 0x9C, 0xB1, 0x00, 0x60, 0x08, 0x03, 0x92, 0x2C } };
 extern HMODULE g_hModule;
 
-// Àü¿ª Æ÷ÀÎÅÍ ÃÊ±âÈ­
+// ì „ì—­ í¬ì¸í„° ì´ˆê¸°í™”
 CDeltaCastDriver* CDeltaCastDriver::g_pThis = nullptr;
 
 CDeltaCastDriver::CDeltaCastDriver() { 
-    g_pThis = this; // Àü¿ª Æ÷ÀÎÅÍ ¿¬°á
+    g_pThis = this; // ì „ì—­ í¬ì¸í„° ì—°ê²°
     memset(&m_hostCallbacks, 0, sizeof(m_hostCallbacks));
     memset(&m_myCallbacks, 0, sizeof(m_myCallbacks));
     LoadConfiguration();
@@ -59,7 +66,7 @@ ASIOError CDeltaCastDriver::createBuffers(ASIOBufferInfo* bufferInfos, long numC
 
     if (!m_backend) return ASE_NotPresent;
 
-    // È£½ºÆ® Äİ¹é
+    // í˜¸ìŠ¤íŠ¸ ì½œë°±
     m_hostCallbacks = *callbacks;
     m_bufferInfos = bufferInfos;
     m_bufferSize = bufferSize;
@@ -74,20 +81,20 @@ ASIOError CDeltaCastDriver::createBuffers(ASIOBufferInfo* bufferInfos, long numC
     m_resamplerL.Setup(m_sampleRate, 48000.0);
     m_resamplerR.Setup(m_sampleRate, 48000.0);
 
-    // º¹Á¦ Äİ¹é ÇÔ¼öµé ¿¬°á
+    // ë³µì œ ì½œë°± í•¨ìˆ˜ë“¤ ì—°ê²°
     m_myCallbacks.bufferSwitch = &CDeltaCastDriver::bufferSwitch;
     m_myCallbacks.bufferSwitchTimeInfo = &CDeltaCastDriver::bufferSwitchTimeInfo;
     m_myCallbacks.sampleRateDidChange = &CDeltaCastDriver::sampleRateChanged;
     m_myCallbacks.asioMessage = &CDeltaCastDriver::asioMessage;
 
-    // bufferInfo ±âÁØ ÇÏµå¿ş¾î°¡ Á÷Á¢ ¸Ş¸ğ¸®¸¦ ÇÒ´ç
+    // bufferInfo ê¸°ì¤€ í•˜ë“œì›¨ì–´ê°€ ì§ì ‘ ë©”ëª¨ë¦¬ë¥¼ í• ë‹¹
     ASIOError result = m_backend->createBuffers(bufferInfos, numChannels, bufferSize, &m_myCallbacks);
 
     if (result == ASE_OK) {
         m_outIndexL = -1;
         m_outIndexR = -1;
         for (long i = 0; i < numChannels; i++) {
-            // isInputÀÌ FalseÀÌ¸é Ãâ·Â Ã¤³Î
+            // isInputì´ Falseì´ë©´ ì¶œë ¥ ì±„ë„
             if (m_bufferInfos[i].isInput == ASIOFalse) {
                 if (m_outIndexL == -1) {
                     m_outIndexL = i;
@@ -122,17 +129,17 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
     if (g_pThis->m_lastProcessedBufferIndex == index) return;
     g_pThis->m_lastProcessedBufferIndex = index;
 
-    // createBuffers ¿¡¼­ ¹ŞÀº Å©±â
+    // createBuffers ì—ì„œ ë°›ì€ í¬ê¸°
     long blockSize = g_pThis->m_bufferSize;
 
-    // ¿øº» ¿Àµğ¿À µ¥ÀÌÅÍ Æ÷ÀÎÅÍ
+    // ì›ë³¸ ì˜¤ë””ì˜¤ ë°ì´í„° í¬ì¸í„°
     void* pRawL = g_pThis->m_bufferInfos[g_pThis->m_outIndexL].buffers[index];
     void* pRawR = (g_pThis->m_outIndexR != -1) ?
         g_pThis->m_bufferInfos[g_pThis->m_outIndexR].buffers[index] : nullptr;
 
     if (!pRawL) return;
 
-    // Àâ¾ÆµĞ Æ÷ÀÎÅÍ »ç¿ë
+    // ì¡ì•„ë‘” í¬ì¸í„° ì‚¬ìš©
     float* pDestL = g_pThis->m_convertBufferL.data();
     float* pDestR = g_pThis->m_convertBufferR.data();
 
@@ -140,7 +147,7 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
 
     switch (type) {
 
-    // 32ºñÆ® Á¤¼ö (Int32)
+    // 32ë¹„íŠ¸ ì •ìˆ˜ (Int32)
     case ASIOSTInt32LSB: {
         int32_t* srcL = (int32_t*)pRawL;
         int32_t* srcR = (int32_t*)pRawR;
@@ -151,7 +158,7 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
         break;
     }
 
-    // 32ºñÆ® ºÎµ¿¼Ò¼öÁ¡ (Float32)
+    // 32ë¹„íŠ¸ ë¶€ë™ì†Œìˆ˜ì  (Float32)
     case ASIOSTFloat32LSB: {
         float* srcL = (float*)pRawL;
         float* srcR = (float*)pRawR;
@@ -161,7 +168,7 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
         break;
     }
 
-    // 24ºñÆ® Á¤¼ö (Int24 Packed)
+    // 24ë¹„íŠ¸ ì •ìˆ˜ (Int24 Packed)
     case ASIOSTInt24LSB: {
         uint8_t* srcL = (uint8_t*)pRawL;
         uint8_t* srcR = (uint8_t*)pRawR;
@@ -169,7 +176,7 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
 
             // Left 
             int32_t sampleL = (int32_t)((srcL[i * 3 + 2] << 24) | (srcL[i * 3 + 1] << 16) | (srcL[i * 3] << 8));
-            // ºÎÈ£ È®Àå
+            // ë¶€í˜¸ í™•ì¥
             pDestL[i] = (float)(sampleL >> 8) * INT24_TO_FLOAT;
 
             // Right
@@ -184,7 +191,7 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
         break;
     }
 
-    // 16ºñÆ® Á¤¼ö (Int16)
+    // 16ë¹„íŠ¸ ì •ìˆ˜ (Int16)
     case ASIOSTInt16LSB: {
         int16_t* srcL = (int16_t*)pRawL;
         int16_t* srcR = (int16_t*)pRawR;
@@ -195,7 +202,7 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
         break;
     }
 
-    // 64ºñÆ® ºÎµ¿¼Ò¼öÁ¡ (Double)
+    // 64ë¹„íŠ¸ ë¶€ë™ì†Œìˆ˜ì  (Double)
     case ASIOSTFloat64LSB: {
         double* srcL = (double*)pRawL;
         double* srcR = (double*)pRawR;
@@ -206,22 +213,22 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
         break;
     }
 
-    // ±× ¿Ü Æ÷¸Ë
+    // ê·¸ ì™¸ í¬ë§·
     default:
-        // Áö¿øÇÏÁö ¾Ê´Â Æ÷¸ËÀº 0(Ä§¹¬)
+        // ì§€ì›í•˜ì§€ ì•ŠëŠ” í¬ë§·ì€ 0(ì¹¨ë¬µ)
         memset(pDestL, 0, blockSize * sizeof(float));
         memset(pDestR, 0, blockSize * sizeof(float));
         break;
     }
 
-    // ¿ŞÂÊ Ã¤³Î Ã³¸®
+    // ì™¼ìª½ ì±„ë„ ì²˜ë¦¬
    size_t outSamplesL = g_pThis->m_resamplerL.Process(
-        g_pThis->m_convertBufferL.data(), // º¯È¯µÈ µ¥ÀÌÅÍ
-        blockSize,                        // µ¥ÀÌÅÍ °³¼ö
-        g_pThis->m_resampledDataL.data(), // °á°ú°¡ ´ã±æ °÷
+        g_pThis->m_convertBufferL.data(), // ë³€í™˜ëœ ë°ì´í„°
+        blockSize,                        // ë°ì´í„° ê°œìˆ˜
+        g_pThis->m_resampledDataL.data(), // ê²°ê³¼ê°€ ë‹´ê¸¸ ê³³
         g_pThis->m_resampledDataL.size()  
    );
-   // ¿À¸¥ÂÊ Ã¤³Î Ã³¸®
+   // ì˜¤ë¥¸ìª½ ì±„ë„ ì²˜ë¦¬
    size_t outSamplesR = g_pThis->m_resamplerR.Process(
         g_pThis->m_convertBufferR.data(),
         blockSize, 
@@ -229,7 +236,7 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
         g_pThis->m_resampledDataR.size()
    );
 
-    // ¸µ¹öÆÛ¿¡ Push
+    // ë§ë²„í¼ì— Push
    if (outSamplesL > 0) {
        g_pThis->m_loopbackBufferL.Push(
            g_pThis->m_resampledDataL.data(),
@@ -245,14 +252,38 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
 }
 
 ASIOTime* CDeltaCastDriver::bufferSwitchTimeInfo(ASIOTime* timeInfo, long index, ASIOBool processNow) {
-    // ÀÌ ÇÔ¼ö ³»¿¡¼­´Â Àı´ë DebugLog, printf, new, lock »ç¿ë ±İÁö
-    // ¼Ò¸®´Â ±×´ë·Î Áö³ª°¨
+#ifdef DELTA_ENGINE_INTEGRATION
+    if (g_pDiagnosticsBuffer) {
+        DriftPacket packet;
+
+        // 1. ì˜¤ë””ì˜¤ í•˜ë“œì›¨ì–´ ì‹œê°„ íšë“
+        if (timeInfo) {
+            packet.audioTimestamp = timeInfo->timeInfo.systemTime.lo;
+        }
+        else {
+            packet.audioTimestamp = 0;
+        }
+
+        // 2. CPU ê³ í•´ìƒë„ ì‹œê°„ íšë“
+        LARGE_INTEGER qpc;
+        QueryPerformanceCounter(&qpc);
+        packet.cpuTimestamp = qpc.QuadPart;
+
+        packet.bufferIndex = (uint32_t)index;
+        packet.reserved = 0;
+
+        // 3. ì—”ì§„ìœ¼ë¡œ ì „ì†¡ (Wait-Free)
+        g_pDiagnosticsBuffer->Push(&packet, 1);
+    }
+#endif
+    // ì´ í•¨ìˆ˜ ë‚´ì—ì„œëŠ” ì ˆëŒ€ DebugLog, printf, new, lock ì‚¬ìš© ê¸ˆì§€
+    // ì†Œë¦¬ëŠ” ê·¸ëŒ€ë¡œ ì§€ë‚˜ê°
     ASIOTime* result = nullptr;
     if (g_pThis && g_pThis->m_hostCallbacks.bufferSwitchTimeInfo) {
         result = g_pThis->m_hostCallbacks.bufferSwitchTimeInfo(timeInfo, index, processNow);
     }
 
-    // ¿Àµğ¿À µ¥ÀÌÅÍ º¹Á¦
+    // ì˜¤ë””ì˜¤ ë°ì´í„° ë³µì œ
     CopyAudioToRingBuffer(index);
 
     return result;
@@ -287,7 +318,7 @@ void CDeltaCastDriver::LoadConfiguration() {
     WCHAR modulePath[MAX_PATH];
     if (GetModuleFileNameW(g_hModule, modulePath, MAX_PATH) == 0) return;
 
-    // DeltaCast.ini È®ÀÎ
+    // DeltaCast.ini í™•ì¸
     std::wstring configPath = modulePath;
     size_t lastSlash = configPath.find_last_of(L"\\/");
     if (lastSlash != std::wstring::npos) {
@@ -297,22 +328,22 @@ void CDeltaCastDriver::LoadConfiguration() {
 
     DebugLog("[DeltaCast] Loading Config from: %ls\n", configPath.c_str());
 
-    // INI¿¡¼­ CLSID ÀĞ±â
+    // INIì—ì„œ CLSID ì½ê¸°
     WCHAR clsidStr[64] = { 0 };
     GetPrivateProfileStringW(
-        L"Settings",          // ¼½¼Ç
-        L"TargetDriverCLSID", // Å°
-        L"",                  // ±âº»°ª
-        clsidStr,             // ÀúÀåÇÒ ¹öÆÛ
-        64,                   // ¹öÆÛ Å©±â
-        configPath.c_str()    // ÆÄÀÏ °æ·Î
+        L"Settings",          // ì„¹ì…˜
+        L"TargetDriverCLSID", // í‚¤
+        L"",                  // ê¸°ë³¸ê°’
+        clsidStr,             // ì €ì¥í•  ë²„í¼
+        64,                   // ë²„í¼ í¬ê¸°
+        configPath.c_str()    // íŒŒì¼ ê²½ë¡œ
     );
-    // INI¿¡¼­ WASAPI Device ID ÀĞ±â
+    // INIì—ì„œ WASAPI Device ID ì½ê¸°
     WCHAR wasapiIdBuf[256] = { 0 };
     GetPrivateProfileStringW(
         L"Settings",
         L"TargetWasapiID",
-        L"", // ±âº»°ª: ºó ¹®ÀÚ¿­ (±âº» ÀåÄ¡)
+        L"", // ê¸°ë³¸ê°’: ë¹ˆ ë¬¸ìì—´ (ê¸°ë³¸ ì¥ì¹˜)
         wasapiIdBuf,
         256,
         configPath.c_str()
@@ -322,7 +353,7 @@ void CDeltaCastDriver::LoadConfiguration() {
     DebugLog("[DeltaCast] Target WASAPI ID: %ls\n", m_targetWasapiId.c_str());
 
     if (wcslen(clsidStr) > 0) {
-        // CLSID ±¸Á¶Ã¼·Î º¯È¯
+        // CLSID êµ¬ì¡°ì²´ë¡œ ë³€í™˜
         HRESULT hr = CLSIDFromString(clsidStr, &m_targetClsid);
         if (SUCCEEDED(hr)) {
             m_hasConfig = true;
@@ -349,7 +380,7 @@ ASIOBool CDeltaCastDriver::init(void* sysHandle) {
 ASIOError CDeltaCastDriver::start() {
     if (!m_backend) return ASE_NotPresent;
 
-    // WASAPI ·»´õ·¯ ½ÃÀÛ
+    // WASAPI ë Œë”ëŸ¬ ì‹œì‘
     m_renderer.Start(&m_loopbackBufferL, &m_loopbackBufferR, m_targetWasapiId);
 
     return m_backend->start();
@@ -358,7 +389,7 @@ ASIOError CDeltaCastDriver::start() {
 ASIOError CDeltaCastDriver::stop() {
     if (!m_backend) return ASE_NotPresent;
 
-    // WASAPI ·»´õ·¯ ÁßÁö
+    // WASAPI ë Œë”ëŸ¬ ì¤‘ì§€
     m_renderer.Stop();
 
     return m_backend->stop();
@@ -445,7 +476,7 @@ ASIOError CDeltaCastDriver::outputReady() {
     return m_backend ? m_backend->outputReady() : ASE_NotPresent;
 }
 
-// COM ±¸Çö
+// COM êµ¬í˜„
 HRESULT STDMETHODCALLTYPE CDeltaCastDriver::QueryInterface(REFIID riid, void** ppv) {
     if (riid == IID_IUnknown || riid == kIID_IASIO || riid == CLSID_Delta_Cast) {
         *ppv = static_cast<IASIO*>(this);

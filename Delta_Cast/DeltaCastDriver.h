@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include <windows.h>
 #include <iasiodrv.h>
 #include <atomic>
@@ -34,21 +34,21 @@ public:
     virtual ASIOError future(long selector, void* opt) override;
     virtual ASIOError outputReady() override;
 
-    // COM »ç¿ë½Ã ÇÊ¿ä
+    // COM ì‚¬ìš©ì‹œ í•„ìš”
     virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override;
     virtual ULONG STDMETHODCALLTYPE AddRef() override;
     virtual ULONG STDMETHODCALLTYPE Release() override;
 
-    // Àü¿ª Á¢±ÙÀ» À§ÇÑ Æ÷ÀÎÅÍ
+    // ì „ì—­ ì ‘ê·¼ì„ ìœ„í•œ í¬ì¸í„°
     static CDeltaCastDriver* g_pThis;
 
-    LockFreeRingBuffer<float> m_loopbackBufferL{ 131072 }; // ¾à 2ÃÊ ºĞ·®
+    LockFreeRingBuffer<float> m_loopbackBufferL{ 131072 }; // ì•½ 2ì´ˆ ë¶„ëŸ‰
     LockFreeRingBuffer<float> m_loopbackBufferR{ 131072 };
 
 private:
-    ASIOCallbacks m_hostCallbacks;              // ¿øº» Äİ¹é
-    ASIOCallbacks m_myCallbacks;                // º¹Á¦ Äİ¹é
-    ASIOBufferInfo* m_bufferInfos = nullptr;    // ¿Àµğ¿À ¹öÆÛ À§Ä¡
+    ASIOCallbacks m_hostCallbacks;              // ì›ë³¸ ì½œë°±
+    ASIOCallbacks m_myCallbacks;                // ë³µì œ ì½œë°±
+    ASIOBufferInfo* m_bufferInfos = nullptr;    // ì˜¤ë””ì˜¤ ë²„í¼ ìœ„ì¹˜
     ASIOSampleType m_sampleType = ASIOSTFloat32LSB;
     ASIOSampleRate m_sampleRate = 44100.0;
     std::vector<float> m_convertBufferL;
@@ -58,7 +58,7 @@ private:
     long m_outIndexL = -1;
     long m_outIndexR = -1;
 
-    // »ùÇÃ¸µ ÁÖÆÄ¼ö º¯È¯
+    // ìƒ˜í”Œë§ ì£¼íŒŒìˆ˜ ë³€í™˜
     Resampler m_resamplerL;
     Resampler m_resamplerR;
     std::vector<float> m_resampledDataL;

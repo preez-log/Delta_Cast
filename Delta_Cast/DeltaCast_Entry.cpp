@@ -1,4 +1,4 @@
-#include <Windows.h>
+ï»¿#include <Windows.h>
 #include <string>
 #include "DeltaCastFactory.h"
 #include "DeltaCastGuids.h"
@@ -31,7 +31,7 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
 }
 STDAPI DllCanUnloadNow() { return (g_cDllRef == 0) ? S_OK : S_FALSE; }
 
-// ·¹Áö½ºÆ®¸® µî·Ï
+// ë ˆì§€ìŠ¤íŠ¸ë¦¬ ë“±ë¡
 STDAPI DllRegisterServer() {
     wchar_t modulePath[MAX_PATH];
     if (GetModuleFileName(g_hModule, modulePath, MAX_PATH) == 0) return E_FAIL;
@@ -41,19 +41,19 @@ STDAPI DllRegisterServer() {
     std::wstring clsidWStr = clsidStr;
     CoTaskMemFree(clsidStr);
 
-    // Å° ÀÌ¸§ 'Delta_Cast ASIO'
+    // í‚¤ ì´ë¦„ 'Delta_Cast ASIO'
     std::wstring asioKey = L"SOFTWARE\\ASIO\\Delta_Cast ASIO";
 
-    // Å° »ı¼º
+    // í‚¤ ìƒì„±
     if (!CreateRegistryKey(HKEY_LOCAL_MACHINE, asioKey, L"CLSID", clsidWStr)) return E_FAIL;
 
-    // Descriptionµµ Å° ÀÌ¸§°ú Åä¾¾ ÇÏ³ª ¾È Æ²¸®°í ¶È°°ÀÌ ¼³Á¤!
+    // Descriptionë„ í‚¤ ì´ë¦„ê³¼ í† ì”¨ í•˜ë‚˜ ì•ˆ í‹€ë¦¬ê³  ë˜‘ê°™ì´ ì„¤ì •!
     if (!CreateRegistryKey(HKEY_LOCAL_MACHINE, asioKey, L"Description", L"Delta_Cast ASIO")) return E_FAIL;
 
-    // COM ¼­¹ö µî·Ï
+    // COM ì„œë²„ ë“±ë¡
     std::wstring comKey = L"CLSID\\" + clsidWStr + L"\\InprocServer32";
     if (!CreateRegistryKey(HKEY_CLASSES_ROOT, comKey, L"", modulePath)) return E_FAIL;
-    if (!CreateRegistryKey(HKEY_CLASSES_ROOT, comKey, L"ThreadingModel", L"Both")) return E_FAIL; // Both·Î ¼³Á¤
+    if (!CreateRegistryKey(HKEY_CLASSES_ROOT, comKey, L"ThreadingModel", L"Both")) return E_FAIL; // Bothë¡œ ì„¤ì •
 
     return S_OK;
 }
@@ -61,8 +61,30 @@ STDAPI DllRegisterServer() {
 STDAPI DllUnregisterServer() {
     RegDeleteKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\ASIO\\Delta_Cast ASIO");
 
-    // GUID º¯°æ½Ã È®ÀÎ ÇÊ¿ä
+    // GUID ë³€ê²½ì‹œ í™•ì¸ í•„ìš”
     RegDeleteKey(HKEY_CLASSES_ROOT, L"CLSID\\{219E19EF-B9DC-4103-A2BB-90AC8D2C3BF0}\\InprocServer32");
     RegDeleteKey(HKEY_CLASSES_ROOT, L"CLSID\\{219E19EF-B9DC-4103-A2BB-90AC8D2C3BF0}");
     return S_OK;
 }
+
+#ifdef DELTA_ENGINE_INTEGRATION
+#include "DiagnosticsTypes.h"
+#include "RingBuffer.h"
+
+// Driver.cppì— ìˆëŠ” ì „ì—­ ë³€ìˆ˜ ì°¸ì¡°
+extern LockFreeRingBuffer<DriftPacket>* g_pDiagnosticsBuffer;
+
+// [SECRET EXPORT] ì—”ì§„ì´ ì ‘ì†í•  ë¹„ë°€ í†µë¡œ
+extern "C" __declspec(dllexport) bool __cdecl DeltaCast_RegisterDiagnostics(
+    uint64_t accessKey,
+    void* pRingBuffer
+) {
+    // í‚¤ê°€ í‹€ë¦¬ë©´ ì—°ê²° ê±°ë¶€
+    if (accessKey != DIAGNOSTICS_KEY) return false;
+
+    // ë§ë²„í¼ ì—°ê²°
+    g_pDiagnosticsBuffer = (LockFreeRingBuffer<DriftPacket>*)pRingBuffer;
+
+    return true;
+}
+#endif
