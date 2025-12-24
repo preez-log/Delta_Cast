@@ -66,25 +66,3 @@ STDAPI DllUnregisterServer() {
     RegDeleteKey(HKEY_CLASSES_ROOT, L"CLSID\\{219E19EF-B9DC-4103-A2BB-90AC8D2C3BF0}");
     return S_OK;
 }
-
-#ifdef DELTA_ENGINE_INTEGRATION
-#include "DiagnosticsTypes.h"
-#include "RingBuffer.h"
-
-// Driver.cpp에 있는 전역 변수 참조
-extern LockFreeRingBuffer<DriftPacket>* g_pDiagnosticsBuffer;
-
-// [SECRET EXPORT] 엔진이 접속할 비밀 통로
-extern "C" __declspec(dllexport) bool __cdecl DeltaCast_RegisterDiagnostics(
-    uint64_t accessKey,
-    void* pRingBuffer
-) {
-    // 키가 틀리면 연결 거부
-    if (accessKey != DIAGNOSTICS_KEY) return false;
-
-    // 링버퍼 연결
-    g_pDiagnosticsBuffer = (LockFreeRingBuffer<DriftPacket>*)pRingBuffer;
-
-    return true;
-}
-#endif
