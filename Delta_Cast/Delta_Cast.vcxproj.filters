@@ -48,6 +48,12 @@
     <ClInclude Include="resource.h">
       <Filter>리소스 파일</Filter>
     </ClInclude>
+    <ClInclude Include="timer.h">
+      <Filter>Util</Filter>
+    </ClInclude>
+    <ClInclude Include="DriverBackend.h">
+      <Filter>Core</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="DeltaCast.def" />

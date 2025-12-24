@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
@@ -18,12 +18,12 @@ public:
     CWasapiRenderer();
     ~CWasapiRenderer();
 
-    // ÀåÄ¡ Á¤º¸
+    // ì¥ì¹˜ ì •ë³´
     std::vector<AudioDevice> GetOutputDevices();
 
-    // ÃÊ±âÈ­ ¹× Àç»ı ½ÃÀÛ
+    // ì´ˆê¸°í™” ë° ì¬ìƒ ì‹œì‘
     bool Start(LockFreeRingBuffer<float>* pBufferL, LockFreeRingBuffer<float>* pBufferR, const std::wstring& deviceId);
-    // Àç»ı ÁßÁö
+    // ì¬ìƒ ì¤‘ì§€
     void Stop();
 
 private:
@@ -35,7 +35,7 @@ private:
     LockFreeRingBuffer<float>* m_pBufferL = nullptr;
     LockFreeRingBuffer<float>* m_pBufferR = nullptr;
 
-    // WASAPI ÀÎÅÍÆäÀÌ½º
+    // WASAPI ì¸í„°í˜ì´ìŠ¤
     IMMDeviceEnumerator* m_pEnumerator = nullptr;
     IMMDevice* m_pDevice = nullptr;
     IAudioClient* m_pAudioClient = nullptr;

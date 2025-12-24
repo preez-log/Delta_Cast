@@ -31,12 +31,16 @@ Delta_Cast는 게임과 하드웨어 사이에서 오디오 데이터를 Zero-La
 * **송출 최적화:**
     - 내부 리샘플러(Resampler)가 인풋 샘플레이트와 상관없이 표준 48kHz로 변환하여 송출합니다.
     - 클럭 드리프트 보정 및 방지 로직이 탑재되었습니다.
+* **가상 ASIO:**
+    - 별도의 오디오 인터페이스 없이도 가상의 고성능 ASIO 장치를 생성합니다.
+    - 오인페가 없는 노트북이나 일반 데스크탑 환경에서도 리듬게임을 저지연 (수치적 계산상 드라이버단에서 약 5.6ms + 윈도우 지연)으로 즐기며 방송할 수 있습니다.
+
 
 ## 설치 방법 (Installation)
 
 1.  오른쪽의 [Releases](../../releases) 페이지에서 최신 버전을 다운로드합니다.
-2.  압축을 풀고 `DeltaCast_Config.exe`를 실행합니다.
-3.  **Select Real ASIO Hardware:** 사용 중인 실제 오디오 인터페이스(예: Steinberg UR22, Focusrite, FlexAsio, Asio4ALL 등)를 선택합니다.
+2.  압축을 풀고 `Delta_Cast_GUI.exe`를 실행합니다.
+3.  **Select Real ASIO Hardware:** 사용 중인 실제 오디오 인터페이스(예: Steinberg UR22, Focusrite등)를 선택하거나, 없을경우 가장위의 [Virtual] 선택 합니다.
 4.  **Select Loopback Output:** 소리를 내보낼 윈도우 가상 장치를 선택합니다. (VB 가상 케이블 설치 권장)
 5.  **[Save Config]** 버튼을 누른 후, **[Init Driver]** 버튼을 눌러 드라이버를 등록합니다.
 

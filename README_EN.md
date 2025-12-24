@@ -34,7 +34,7 @@ Delta_Cast is a proxy routing driver that passes audio data between the game and
 ## Installation
 
 1.  Download the latest version from the [Releases](../../releases) page.
-2.  Extract the files and run `DeltaCast_Config.exe`.
+2.  Extract the files and run `Delta_Cast_GUI.exe`.
 3.  **Select Real ASIO Hardware:** Choose the actual audio interface you are using (e.g., Steinberg UR22, Focusrite, FlexAsio, Asio4ALL, etc.).
 4.  **Select Loopback Output:** Choose the Windows virtual device to output the sound to. (Installing VB Virtual Cable is recommended).
 5.  Click the **[Save Config]** button, and then click **[Init Driver]** to register the driver.

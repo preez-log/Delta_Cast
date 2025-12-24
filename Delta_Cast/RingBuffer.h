@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include <atomic>
 #include <vector>
 
@@ -10,26 +10,26 @@ class LockFreeRingBuffer {
 public:
     explicit LockFreeRingBuffer(size_t size = 65536)
         : m_size(size), m_mask(size - 1), m_buffer(size) {
-        // ÀĞ±â/¾²±â Æ÷ÀÎÅÍ
+        // ì½ê¸°/ì“°ê¸° í¬ì¸í„°
         m_writeIndex.store(0, std::memory_order_relaxed);
         m_readIndex.store(0, std::memory_order_relaxed);
     }
 
-    // µ¥ÀÌÅÍ ¹Ğ¾î³Ö±â
+    // ë°ì´í„° ë°€ì–´ë„£ê¸°
     void Push(const T* data, size_t count) {
         size_t writeIdx = m_writeIndex.load(std::memory_order_acquire);
         size_t readIdx = m_readIndex.load(std::memory_order_acquire);
 
-        // ¿©À¯ °ø°£ È®ÀÎ
+        // ì—¬ìœ  ê³µê°„ í™•ì¸
         size_t avail = m_size - (writeIdx - readIdx);
         if (avail < count) return;
 
         for (size_t i = 0; i < count; ++i) {
-            // ºñÆ® ¿¬»ê
+            // ë¹„íŠ¸ ì—°ì‚°
             m_buffer[(writeIdx + i) & m_mask] = data[i];
         }
 
-        // ÀÎµ¦½º ¾÷µ¥ÀÌÆ®
+        // ì¸ë±ìŠ¤ ì—…ë°ì´íŠ¸
         m_writeIndex.store(writeIdx + count, std::memory_order_release);
     }
 
@@ -39,13 +39,13 @@ public:
         return w - r;
     }
 
-    // µ¥ÀÌÅÍ ²¨³»¿À±â
+    // ë°ì´í„° êº¼ë‚´ì˜¤ê¸°
     size_t Pop(T* output, size_t count) {
         size_t writeIdx = m_writeIndex.load(std::memory_order_acquire);
         size_t readIdx = m_readIndex.load(std::memory_order_acquire);
 
         size_t availableData = writeIdx - readIdx;
-        if (availableData == 0) return 0; // µ¥ÀÌÅÍ ¾øÀ½
+        if (availableData == 0) return 0; // ë°ì´í„° ì—†ìŒ
 
         size_t toRead = (count > availableData) ? availableData : count;
 
@@ -53,7 +53,7 @@ public:
             output[i] = m_buffer[(readIdx + i) & m_mask];
         }
 
-        // ÀÎµ¦½º ¾÷µ¥ÀÌÆ®
+        // ì¸ë±ìŠ¤ ì—…ë°ì´íŠ¸
         m_readIndex.store(readIdx + toRead, std::memory_order_release);
         return toRead;
     }

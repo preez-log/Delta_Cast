@@ -1,9 +1,11 @@
-#pragma once
+ï»¿#pragma once
 #include <windows.h>
 #include <iasiodrv.h>
 #include <atomic>
+#include <memory>
 
 #include "RingBuffer.h"
+#include "DriverBackend.h"
 #include "WasapiRenderer.h"
 #include "Resampler.h"
 
@@ -13,11 +15,11 @@ public:
     virtual ~CDeltaCastDriver();
 
     virtual ASIOBool init(void* sysHandle) override;
+    virtual ASIOError start() override;
+    virtual ASIOError stop() override;
     virtual void getDriverName(char* name) override;
     virtual long getDriverVersion() override;
     virtual void getErrorMessage(char* string) override;
-    virtual ASIOError start() override;
-    virtual ASIOError stop() override;
     virtual ASIOError getChannels(long* numInputChannels, long* numOutputChannels) override;
     virtual ASIOError getLatencies(long* inputLatency, long* outputLatency) override;
     virtual ASIOError getBufferSize(long* minSize, long* maxSize, long* preferredSize, long* granularity) override;
@@ -34,49 +36,66 @@ public:
     virtual ASIOError future(long selector, void* opt) override;
     virtual ASIOError outputReady() override;
 
-    // COM »ç¿ë½Ã ÇÊ¿ä
+    // --- COM êµ¬í˜„ --- 
     virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override;
     virtual ULONG STDMETHODCALLTYPE AddRef() override;
     virtual ULONG STDMETHODCALLTYPE Release() override;
 
-    // Àü¿ª Á¢±ÙÀ» À§ÇÑ Æ÷ÀÎÅÍ
+    // --- ì „ì—­ ì ‘ê·¼ í¬ì¸í„° ---
     static CDeltaCastDriver* g_pThis;
 
-    LockFreeRingBuffer<float> m_loopbackBufferL{ 131072 }; // ¾à 2ÃÊ ºĞ·®
+	// --- ì†¡ì¶œ ë²„í¼ ---
+    LockFreeRingBuffer<float> m_loopbackBufferL{ 131072 }; // ì•½ 2ì´ˆ ë¶„ëŸ‰
     LockFreeRingBuffer<float> m_loopbackBufferR{ 131072 };
 
+	// --- ë²„í¼ ìŠ¤ìœ„ì¹˜ íŠ¸ë¦¬ê±° ---
+    void TriggerBufferSwitch(long doubleBufferIndex);
+
+    friend class VirtualBackend;
+    friend class ProxyBackend;
+
 private:
-    ASIOCallbacks m_hostCallbacks;              // ¿øº» Äİ¹é
-    ASIOCallbacks m_myCallbacks;                // º¹Á¦ Äİ¹é
-    ASIOBufferInfo* m_bufferInfos = nullptr;    // ¿Àµğ¿À ¹öÆÛ À§Ä¡
+    // --- ì„¤ì • ---
+    void LoadConfiguration();
+
+    // ì‹¤ì œ ë™ì‘ì„ ë‹´ë‹¹í•  ì „ëµ ê°ì²´
+    std::unique_ptr<IDriverBackend> m_backendImpl;
+
+    // --- ê³µí†µ ì˜¤ë””ì˜¤ ì²˜ë¦¬ ---
+    void CopyAudioToRingBuffer(long index);
+
+    ASIOCallbacks m_hostCallbacks;
+    ASIOCallbacks m_myCallbacks;
+    ASIOBufferInfo* m_bufferInfos = nullptr;
     ASIOSampleType m_sampleType = ASIOSTFloat32LSB;
     ASIOSampleRate m_sampleRate = 44100.0;
-    std::vector<float> m_convertBufferL;
-    std::vector<float> m_convertBufferR;
     long m_numChannels = 0;
     long m_bufferSize = 0;
     long m_outIndexL = -1;
     long m_outIndexR = -1;
+    long m_lastProcessedBufferIndex = -1;
 
-    // »ùÇÃ¸µ ÁÖÆÄ¼ö º¯È¯
-    Resampler m_resamplerL;
-    Resampler m_resamplerR;
+    std::vector<float> m_convertBufferL;
+    std::vector<float> m_convertBufferR;
     std::vector<float> m_resampledDataL;
     std::vector<float> m_resampledDataR;
+    Resampler m_resamplerL;
+    Resampler m_resamplerR;
 
-    long m_lastProcessedBufferIndex = -1;
+    // WASAPI ë Œë”ëŸ¬
+    CWasapiRenderer m_renderer;
+
+    // --- ASIO í‘œì¤€ í•¨ìˆ˜ ---
     static void bufferSwitch(long doubleBufferIndex, ASIOBool directProcess);
     static ASIOTime* bufferSwitchTimeInfo(ASIOTime* timeInfo, long index, ASIOBool processNow);
     static void sampleRateChanged(ASIOSampleRate sRate);
     static long asioMessage(long selector, long value, void* message, double* opt);
-    static void CopyAudioToRingBuffer(long index);
 
+    // COM ì°¸ì¡° ì¹´ìš´íŠ¸
     std::atomic<ULONG> m_refCount{ 1 };
+
+    // ì„¤ì •ê°’ ì„ì‹œ ì €ì¥
     CLSID m_targetClsid = { 0 };
     std::wstring m_targetWasapiId;
-    bool  m_hasConfig = false;
-    void LoadConfiguration();
-    bool LoadBackendDriver();
-    IASIO* m_backend = nullptr;
-    CWasapiRenderer m_renderer;
+    bool m_isVirtualMode = false;
 };

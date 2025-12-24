@@ -1,14 +1,16 @@
-#include "DeltaCastDriver.h"
+Ôªø#include "DeltaCastDriver.h"
 #include "DeltaCastGuids.h"
+#include "timer.h"
 #include <windows.h>
 #include <stdio.h>
 #include <string>
+#include <vector>
 
 const float INT32_TO_FLOAT = 4.65661287e-10f;  // 1 / 2^31
 const float INT24_TO_FLOAT = 1.19209290e-7f;   // 1 / 2^23
 const float INT16_TO_FLOAT = 3.05175781e-5f;   // 1 / 2^15
 
-// µπˆ±◊ ∑Œ±◊ 
+// ÎîîÎ≤ÑÍ∑∏ Î°úÍ∑∏ 
 void DebugLog(const char* fmt, ...) {
 #ifdef _DEBUG
     char buf[2048];
@@ -19,160 +21,344 @@ void DebugLog(const char* fmt, ...) {
     OutputDebugStringA(buf);
 #endif
 }
-void LogGUID(const char* prefix, REFIID riid) {
-#ifdef _DEBUG
-    LPOLESTR guidStr = nullptr;
-    if (SUCCEEDED(StringFromCLSID(riid, &guidStr))) {
-        DebugLog("%s %ls\n", prefix, guidStr);
-        CoTaskMemFree(guidStr);
-    }
-    else {
-        DebugLog("%s (Failed to convert GUID)\n", prefix);
-    }
-#endif
-}
 
 const IID kIID_IASIO = { 0x5B96C901, 0x7195, 0x11D2, { 0x9C, 0xB1, 0x00, 0x60, 0x08, 0x03, 0x92, 0x2C } };
 extern HMODULE g_hModule;
 
-// ¿¸ø™ ∆˜¿Œ≈Õ √ ±‚»≠
+// Ï†ÑÏó≠ Ìè¨Ïù∏ÌÑ∞ Ï¥àÍ∏∞Ìôî
 CDeltaCastDriver* CDeltaCastDriver::g_pThis = nullptr;
 
-CDeltaCastDriver::CDeltaCastDriver() { 
-    g_pThis = this; // ¿¸ø™ ∆˜¿Œ≈Õ ø¨∞·
+
+// ---------------------------------------------------------------------------
+// Í∞ÄÏÉÅ Î∞±ÏóîÎìú (Virtual)
+// ---------------------------------------------------------------------------
+VirtualBackend::VirtualBackend(CDeltaCastDriver* owner, double sampleRate)
+    : m_owner(owner), m_sampleRate(sampleRate) {
+    DebugLog("[VirtualBackend] Created with %.1f Hz\n", sampleRate);
+}
+
+VirtualBackend::~VirtualBackend() {
+    Stop();
+}
+
+ASIOError VirtualBackend::Start() {
+    if (!m_running) {
+        m_running = true;
+        m_thread = std::thread(&VirtualBackend::VirtualClockLoop, this);
+        DebugLog("[VirtualBackend] Thread Started\n");
+    }
+    return ASE_OK;
+}
+
+ASIOError VirtualBackend::Stop() {
+    if (m_running) {
+        m_running = false;
+        if (m_thread.joinable()) {
+            m_thread.join();
+        }
+        DebugLog("[VirtualBackend] Thread Stopped\n");
+    }
+    return ASE_OK;
+}
+
+void VirtualBackend::VirtualClockLoop() {
+    // Ïä§Î†àÎìú Ïö∞ÏÑ†ÏàúÏúÑ
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
+    // Î∏îÎ°ùÎãπ ÏãúÍ∞Ñ Í≥ÑÏÇ∞ (ÎÇòÎÖ∏Ï¥à)
+    double secondsPerBlock = (double)m_bufferSize / m_sampleRate;
+    auto blockDuration = std::chrono::duration_cast<PrecisionClock::Duration>(
+        std::chrono::duration<double>(secondsPerBlock)
+    );
+
+    // Í∏∞Ï§Ä ÏãúÍ∞Ñ
+    auto nextTriggerTime = PrecisionClock::Now();
+    m_samplePos = 0;
+    long doubleBufferIndex = 0;
+
+    DebugLog("[VirtualBackend] Loop Running... Buffer: %d\n", m_bufferSize);
+
+    while (m_running) {
+        // ÎàÑÏ†Å Ïò§Ï∞® Î∞©ÏßÄ
+        nextTriggerTime += blockDuration;
+
+        // Î≤ÑÌçº Ïä§ÏúÑÏπò
+        if (m_owner) {
+            m_owner->TriggerBufferSwitch(doubleBufferIndex);
+        }
+
+        // ÏÉòÌîå ÏúÑÏπò Í∞±Ïã†
+        m_samplePos += m_bufferSize;
+        doubleBufferIndex = (doubleBufferIndex + 1) % 2;
+
+        // Ï†ïÎ∞Ä ÎåÄÍ∏∞
+        PrecisionClock::WaitUntil(nextTriggerTime);
+    }
+}
+
+ASIOError VirtualBackend::CreateBuffers(ASIOBufferInfo* bufferInfos, long numChannels, long bufferSize, ASIOCallbacks* callbacks) {
+    m_bufferSize = bufferSize;
+
+    try {
+        m_buffers.resize(numChannels);
+        for (long i = 0; i < numChannels; i++) {
+            // Ï¥àÍ∏∞Ìôî
+            m_buffers[i].assign(bufferSize, 0.0f);
+
+            // ASIO ÎçîÎ∏î Î≤ÑÌçºÎßÅ Ìè¨Ïù∏ÌÑ∞ Ïó∞Í≤∞
+            bufferInfos[i].buffers[0] = m_buffers[i].data();
+            bufferInfos[i].buffers[1] = m_buffers[i].data();
+        }
+        DebugLog("[VirtualBackend] Buffers Allocated: %d ch, %d frames\n", numChannels, bufferSize);
+        return ASE_OK;
+    }
+    catch (...) {
+        return ASE_NoMemory;
+    }
+}
+
+ASIOError VirtualBackend::DisposeBuffers() {
+    m_buffers.clear();
+    return ASE_OK;
+}
+
+ASIOError VirtualBackend::GetSamplePosition(ASIOSamples* sPos, ASIOTimeStamp* tStamp) {
+    // ÌòÑÏû¨ ÏÉòÌîå ÏúÑÏπò
+    int64_t pos = m_samplePos.load();
+    sPos->lo = (unsigned long)(pos & 0xFFFFFFFF);
+    sPos->hi = (unsigned long)(pos >> 32);
+
+    // ÏãúÍ∞Ñ (ÎÇòÎÖ∏Ï¥à)
+    auto now = std::chrono::high_resolution_clock::now();
+    auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+    tStamp->lo = (unsigned long)(nanos & 0xFFFFFFFF);
+    tStamp->hi = (unsigned long)(nanos >> 32);
+
+    return ASE_OK;
+}
+
+// ---------------------------------------------------------------------------
+// ÎìúÎùºÏù¥Î≤Ñ Î≥∏Ï≤¥
+// ---------------------------------------------------------------------------
+CDeltaCastDriver::CDeltaCastDriver() {
+    g_pThis = this;
     memset(&m_hostCallbacks, 0, sizeof(m_hostCallbacks));
     memset(&m_myCallbacks, 0, sizeof(m_myCallbacks));
-    LoadConfiguration();
-    DebugLog("[DeltaCast] Created\n"); 
+    DebugLog("[DeltaCast] Driver Created\n");
 }
-CDeltaCastDriver::~CDeltaCastDriver() { 
-    if (m_backend) {
-        m_backend->Release();
-        m_backend = nullptr;
-    }
+
+CDeltaCastDriver::~CDeltaCastDriver() {
+    stop();
+    m_backendImpl.reset();
     if (g_pThis == this) g_pThis = nullptr;
-    DebugLog("[DeltaCast] Destroyed\n");
+    DebugLog("[DeltaCast] Driver Destroyed\n");
 }
 
+// ---------------------------------------------------------------------------
+// Ï¥àÍ∏∞Ìôî
+// ---------------------------------------------------------------------------
+void CDeltaCastDriver::LoadConfiguration() {
+    WCHAR modulePath[MAX_PATH];
+    if (GetModuleFileNameW(g_hModule, modulePath, MAX_PATH) == 0) return;
+
+    std::wstring configPath = modulePath;
+    size_t lastSlash = configPath.find_last_of(L"\\/");
+    if (lastSlash != std::wstring::npos) configPath = configPath.substr(0, lastSlash + 1);
+    configPath += L"DeltaCast.ini";
+
+    // INI ÏóêÏÑú ÏùΩÏñ¥Ïò¥
+    WCHAR clsidStr[64] = { 0 };
+    GetPrivateProfileStringW(L"Settings", L"TargetDriverCLSID", L"", clsidStr, 64, configPath.c_str());
+
+    WCHAR wasapiIdBuf[256] = { 0 };
+    GetPrivateProfileStringW(L"Settings", L"TargetWasapiID", L"", wasapiIdBuf, 256, configPath.c_str());
+    m_targetWasapiId = wasapiIdBuf;
+
+    // Î™®Îìú ÏÑ†ÌÉù
+    if (wcscmp(clsidStr, L"Virtual") == 0) {
+        DebugLog("[DeltaCast] Mode: Virtual\n");
+        m_backendImpl = std::make_unique<VirtualBackend>(this, 44100.0);
+    }
+    else if (wcslen(clsidStr) > 0) {
+        CLSID targetClsid;
+        if (SUCCEEDED(CLSIDFromString(clsidStr, &targetClsid))) {
+            DebugLog("[DeltaCast] Mode: Proxy (%ls)\n", clsidStr);
+
+            // Ïã§Ï†ú ÎìúÎùºÏù¥Î≤Ñ Î°úÎìú
+            IASIO* realAsio = nullptr;
+            if (SUCCEEDED(CoCreateInstance(targetClsid, nullptr, CLSCTX_INPROC_SERVER, targetClsid, (void**)&realAsio))) {
+                m_backendImpl = std::make_unique<ProxyBackend>(realAsio);
+            }
+        }
+    }
+
+    if (!m_backendImpl) {
+        DebugLog("[DeltaCast] Error: No valid backend found. Defaulting to Virtual.\n");
+        m_backendImpl = std::make_unique<VirtualBackend>(this, 44100.0);
+    }
+}
+
+ASIOBool CDeltaCastDriver::init(void* sysHandle) {
+    LoadConfiguration();
+    if (!m_backendImpl) return ASIOFalse;
+    return (m_backendImpl->Init(sysHandle) == ASE_OK) ? ASIOTrue : ASIOFalse;
+}
+
+// ---------------------------------------------------------------------------
+// Ïò§ÎîîÏò§ Ï†úÏñ¥
+// ---------------------------------------------------------------------------
 ASIOError CDeltaCastDriver::createBuffers(ASIOBufferInfo* bufferInfos, long numChannels, long bufferSize, ASIOCallbacks* callbacks) {
-    DebugLog("[DeltaCast] createBuffers called. Size: %d\n", bufferSize);
-
-    if (!m_backend) return ASE_NotPresent;
-
-    // »£Ω∫∆Æ ƒ›πÈ
     m_hostCallbacks = *callbacks;
     m_bufferInfos = bufferInfos;
-    m_bufferSize = bufferSize;
     m_numChannels = numChannels;
+    m_bufferSize = bufferSize;
 
+    // Î¶¨ÏÉòÌîåÎü¨ Ï¥àÍ∏∞Ìôî
     size_t maxResampledSize = (size_t)(bufferSize * (48000.0 / 44100.0) + 32);
-
     m_convertBufferL.resize(bufferSize);
     m_convertBufferR.resize(bufferSize);
     m_resampledDataL.resize(maxResampledSize);
     m_resampledDataR.resize(maxResampledSize);
+
+    // ÏÉòÌîå Î†àÏù¥Ìä∏ ÏÑ∏ÌåÖ
+    ASIOSampleRate rate = 44100.0;
+    m_backendImpl->GetSampleRate(&rate);
+    m_sampleRate = rate;
+
     m_resamplerL.Setup(m_sampleRate, 48000.0);
     m_resamplerR.Setup(m_sampleRate, 48000.0);
 
-    // ∫π¡¶ ƒ›πÈ «‘ºˆµÈ ø¨∞·
+    // Î≥µÏ†ú ÏΩúÎ∞± Ïó∞Í≤∞
     m_myCallbacks.bufferSwitch = &CDeltaCastDriver::bufferSwitch;
     m_myCallbacks.bufferSwitchTimeInfo = &CDeltaCastDriver::bufferSwitchTimeInfo;
     m_myCallbacks.sampleRateDidChange = &CDeltaCastDriver::sampleRateChanged;
     m_myCallbacks.asioMessage = &CDeltaCastDriver::asioMessage;
 
-    // bufferInfo ±‚¡ÿ «œµÂø˛æÓ∞° ¡˜¡¢ ∏ﬁ∏∏Æ∏¶ «“¥Á
-    ASIOError result = m_backend->createBuffers(bufferInfos, numChannels, bufferSize, &m_myCallbacks);
+    // Î∞±ÏóîÎìúÏóêÏÑú Î≤ÑÌçº ÏÉùÏÑ±
+    ASIOError result = m_backendImpl->CreateBuffers(bufferInfos, numChannels, bufferSize, &m_myCallbacks);
 
+    // Ï∂úÎ†• Ï±ÑÎÑê Ïù∏Îç±Ïä§ Ï∞æÍ∏∞
     if (result == ASE_OK) {
         m_outIndexL = -1;
         m_outIndexR = -1;
         for (long i = 0; i < numChannels; i++) {
-            // isInput¿Ã False¿Ã∏È √‚∑¬ √§≥Œ
-            if (m_bufferInfos[i].isInput == ASIOFalse) {
-                if (m_outIndexL == -1) {
-                    m_outIndexL = i;
-                    ASIOChannelInfo info = { 0 };
-                    info.channel = m_bufferInfos[i].channelNum;
-                    info.isInput = ASIOFalse;
-
-                    if (m_backend->getChannelInfo(&info) == ASE_OK) {
-                        m_sampleType = info.type;
-                        DebugLog("Found Output L at index: %d (Type: %d)\n", i, m_sampleType);
-                    }
-                }
-                else if (m_outIndexR == -1) {
-                    m_outIndexR = i;
-                    DebugLog("Found Output R at index: %d\n", i);
-                    break;
-                }
+            if (bufferInfos[i].isInput == ASIOFalse) {
+                if (m_outIndexL == -1) m_outIndexL = i;
+                else if (m_outIndexR == -1) { m_outIndexR = i; break; }
             }
         }
-        DebugLog("[DeltaCast] Buffers created & Hook installed successfully!\n");
-    }
-    else {
-        DebugLog("[DeltaCast] createBuffers Failed!\n");
-    }
 
+        // Ï±ÑÎÑê ÌÉÄÏûÖ ÌôïÏù∏
+        ASIOChannelInfo info = { 0 };
+        info.channel = m_outIndexL;
+        info.isInput = ASIOFalse;
+        if (m_backendImpl->GetChannelInfo(&info) == ASE_OK) {
+            m_sampleType = info.type;
+        }
+    }
     return result;
 }
 
+ASIOError CDeltaCastDriver::start() {
+    if (!m_backendImpl) return ASE_NotPresent;
+    m_renderer.Start(&m_loopbackBufferL, &m_loopbackBufferR, m_targetWasapiId);
+    return m_backendImpl->Start();
+}
+
+ASIOError CDeltaCastDriver::stop() {
+    m_renderer.Stop();
+    return m_backendImpl ? m_backendImpl->Stop() : ASE_OK;
+}
+
+ASIOError CDeltaCastDriver::disposeBuffers() {
+    return m_backendImpl ? m_backendImpl->DisposeBuffers() : ASE_OK;
+}
+// ---------------------------------------------------------------------------
+// Ïò§ÎîîÏò§ Ï≤òÎ¶¨
+// ---------------------------------------------------------------------------
+void CDeltaCastDriver::TriggerBufferSwitch(long index) {
+    // Ìò∏Ïä§Ìä∏ ÏΩúÎ∞±
+    if (m_hostCallbacks.bufferSwitch) {
+        m_hostCallbacks.bufferSwitch(index, ASIOFalse);
+    }
+    // Ïò§ÎîîÏò§ Î≥µÏ†ú Î∞è Î≥ÄÌôò
+    CopyAudioToRingBuffer(index);
+}
+
+// Ï†ïÏ†Å ÎûòÌçºÎì§
+void CDeltaCastDriver::bufferSwitch(long index, ASIOBool directProcess) {
+    if (g_pThis) g_pThis->TriggerBufferSwitch(index);
+}
+ASIOTime* CDeltaCastDriver::bufferSwitchTimeInfo(ASIOTime* timeInfo, long index, ASIOBool processNow) {
+    if (g_pThis) {
+        if (g_pThis->m_hostCallbacks.bufferSwitchTimeInfo)
+            return g_pThis->m_hostCallbacks.bufferSwitchTimeInfo(timeInfo, index, processNow);
+        g_pThis->CopyAudioToRingBuffer(index);
+    }
+    return nullptr;
+}
+
 void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
-    if (!g_pThis || !g_pThis->m_bufferInfos) return;
-    if (g_pThis->m_outIndexL == -1) return;
-    if (g_pThis->m_lastProcessedBufferIndex == index) return;
-    g_pThis->m_lastProcessedBufferIndex = index;
+    if (!m_bufferInfos || m_outIndexL == -1) return;
+    if (m_lastProcessedBufferIndex == index) return;
+    m_lastProcessedBufferIndex = index;
 
-    // createBuffers ø°º≠ πﬁ¿∫ ≈©±‚
-    long blockSize = g_pThis->m_bufferSize;
-
-    // ø¯∫ª ø¿µø¿ µ•¿Ã≈Õ ∆˜¿Œ≈Õ
-    void* pRawL = g_pThis->m_bufferInfos[g_pThis->m_outIndexL].buffers[index];
-    void* pRawR = (g_pThis->m_outIndexR != -1) ?
-        g_pThis->m_bufferInfos[g_pThis->m_outIndexR].buffers[index] : nullptr;
-
+    // ÏõêÎ≥∏ Îç∞Ïù¥ÌÑ∞ Ìè¨Ïù∏ÌÑ∞ ÌöçÎìù
+    void* pRawL = m_bufferInfos[m_outIndexL].buffers[index];
+    void* pRawR = (m_outIndexR != -1) ? m_bufferInfos[m_outIndexR].buffers[index] : nullptr;
     if (!pRawL) return;
 
-    // ¿‚æ∆µ– ∆˜¿Œ≈Õ ªÁøÎ
-    float* pDestL = g_pThis->m_convertBufferL.data();
-    float* pDestR = g_pThis->m_convertBufferR.data();
+    // Ìè¨Îß∑ Î≥ÄÌôò (-> Float32)
+    float* pDestL = m_convertBufferL.data();
+    float* pDestR = m_convertBufferR.data();
 
-    ASIOSampleType type = g_pThis->m_sampleType;
+    // ÏòàÏãú: Float32Ïù∏ Í≤ΩÏö∞
+    if (m_sampleType == ASIOSTFloat32LSB) {
+        memcpy(pDestL, pRawL, m_bufferSize * sizeof(float));
+        if (pRawR) memcpy(pDestR, pRawR, m_bufferSize * sizeof(float));
+        else memcpy(pDestR, pDestL, m_bufferSize * sizeof(float));
+    }
+    switch (m_sampleType) {
 
-    switch (type) {
-
-    // 32∫Ò∆Æ ¡§ºˆ (Int32)
+    // 32ÎπÑÌä∏ Ï†ïÏàò (Int32)
     case ASIOSTInt32LSB: {
         int32_t* srcL = (int32_t*)pRawL;
         int32_t* srcR = (int32_t*)pRawR;
-        for (long i = 0; i < blockSize; i++) {
+        for (long i = 0; i < m_bufferSize; i++) {
             pDestL[i] = (float)srcL[i] * INT32_TO_FLOAT;
             pDestR[i] = srcR ? ((float)srcR[i] * INT32_TO_FLOAT) : pDestL[i];
         }
         break;
     }
 
-    // 32∫Ò∆Æ ∫Œµøº“ºˆ¡° (Float32)
+    // 32ÎπÑÌä∏ Î∂ÄÎèôÏÜåÏàòÏ†ê (Float32)
     case ASIOSTFloat32LSB: {
         float* srcL = (float*)pRawL;
         float* srcR = (float*)pRawR;
-        memcpy(pDestL, srcL, blockSize * sizeof(float));
-        if (srcR) memcpy(pDestR, srcR, blockSize * sizeof(float));
-        else memcpy(pDestR, srcL, blockSize * sizeof(float));
+
+        memcpy(pDestL, srcL, m_bufferSize * sizeof(float));
+
+        if (srcR) {
+            memcpy(pDestR, srcR, m_bufferSize * sizeof(float));
+        }
+        else {
+            // Mono Source -> Stereo Copy
+            memcpy(pDestR, srcL, m_bufferSize * sizeof(float));
+        }
         break;
     }
 
-    // 24∫Ò∆Æ ¡§ºˆ (Int24 Packed)
+    // 24ÎπÑÌä∏ Ï†ïÏàò (Int24 Packed)
     case ASIOSTInt24LSB: {
         uint8_t* srcL = (uint8_t*)pRawL;
         uint8_t* srcR = (uint8_t*)pRawR;
-        for (long i = 0; i < blockSize; i++) {
+        for (long i = 0; i < m_bufferSize; i++) {
 
-            // Left 
+            // Left Channel
             int32_t sampleL = (int32_t)((srcL[i * 3 + 2] << 24) | (srcL[i * 3 + 1] << 16) | (srcL[i * 3] << 8));
-            // ∫Œ»£ »Æ¿Â
             pDestL[i] = (float)(sampleL >> 8) * INT24_TO_FLOAT;
 
-            // Right
+            // Right Channel
             if (srcR) {
                 int32_t sampleR = (int32_t)((srcR[i * 3 + 2] << 24) | (srcR[i * 3 + 1] << 16) | (srcR[i * 3] << 8));
                 pDestR[i] = (float)(sampleR >> 8) * INT24_TO_FLOAT;
@@ -183,285 +369,116 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
         }
         break;
     }
-
-    // 16∫Ò∆Æ ¡§ºˆ (Int16)
+    // 16ÎπÑÌä∏ Ï†ïÏàò (Int16)
     case ASIOSTInt16LSB: {
         int16_t* srcL = (int16_t*)pRawL;
         int16_t* srcR = (int16_t*)pRawR;
-        for (long i = 0; i < blockSize; i++) {
+        for (long i = 0; i < m_bufferSize; i++) {
             pDestL[i] = (float)srcL[i] * INT16_TO_FLOAT;
             pDestR[i] = srcR ? ((float)srcR[i] * INT16_TO_FLOAT) : pDestL[i];
         }
         break;
     }
 
-    // 64∫Ò∆Æ ∫Œµøº“ºˆ¡° (Double)
+    // 64ÎπÑÌä∏ Î∂ÄÎèôÏÜåÏàòÏ†ê (Double)
     case ASIOSTFloat64LSB: {
         double* srcL = (double*)pRawL;
         double* srcR = (double*)pRawR;
-        for (long i = 0; i < blockSize; i++) {
-            pDestL[i] = (float)srcL[i];
+        for (long i = 0; i < m_bufferSize; i++) {
+            pDestL[i] = (float)srcL[i]; // downcast
             pDestR[i] = srcR ? (float)srcR[i] : pDestL[i];
         }
         break;
     }
-
-    // ±◊ ø‹ ∆˜∏À
+    // Í∑∏ Ïô∏ ÏßÄÏõêÌïòÏßÄ ÏïäÎäî Ìè¨Îß∑ (Silence)
     default:
-        // ¡ˆø¯«œ¡ˆ æ ¥¬ ∆˜∏À¿∫ 0(ƒßπ¨)
-        memset(pDestL, 0, blockSize * sizeof(float));
-        memset(pDestR, 0, blockSize * sizeof(float));
+        memset(pDestL, 0, m_bufferSize * sizeof(float));
+        memset(pDestR, 0, m_bufferSize * sizeof(float));
         break;
     }
 
-    // øﬁ¬  √§≥Œ √≥∏Æ
-   size_t outSamplesL = g_pThis->m_resamplerL.Process(
-        g_pThis->m_convertBufferL.data(), // ∫Ø»Øµ» µ•¿Ã≈Õ
-        blockSize,                        // µ•¿Ã≈Õ ∞≥ºˆ
-        g_pThis->m_resampledDataL.data(), // ∞·∞˙∞° ¥„±Ê ∞˜
-        g_pThis->m_resampledDataL.size()  
-   );
-   // ø¿∏•¬  √§≥Œ √≥∏Æ
-   size_t outSamplesR = g_pThis->m_resamplerR.Process(
-        g_pThis->m_convertBufferR.data(),
-        blockSize, 
-        g_pThis->m_resampledDataR.data(),
-        g_pThis->m_resampledDataR.size()
-   );
+    // Î¶¨ÏÉòÌîåÎßÅ (-> 48000Hz)
+    size_t outL = m_resamplerL.Process(pDestL, m_bufferSize, m_resampledDataL.data(), m_resampledDataL.size());
+    size_t outR = m_resamplerR.Process(pDestR, m_bufferSize, m_resampledDataR.data(), m_resampledDataR.size());
 
-    // ∏µπˆ∆€ø° Push
-   if (outSamplesL > 0) {
-       g_pThis->m_loopbackBufferL.Push(
-           g_pThis->m_resampledDataL.data(),
-           outSamplesL
-       );
-   }
-   if (outSamplesR > 0) {
-       g_pThis->m_loopbackBufferR.Push(
-           g_pThis->m_resampledDataR.data(),
-           outSamplesR
-       );
-   }
+    // ÎßÅÎ≤ÑÌçº (-> WASAPI)
+    if (outL > 0) m_loopbackBufferL.Push(m_resampledDataL.data(), outL);
+    if (outR > 0) m_loopbackBufferR.Push(m_resampledDataR.data(), outR);
 }
 
-ASIOTime* CDeltaCastDriver::bufferSwitchTimeInfo(ASIOTime* timeInfo, long index, ASIOBool processNow) {
-    // ¿Ã «‘ºˆ ≥ªø°º≠¥¬ ¿˝¥Î DebugLog, printf, new, lock ªÁøÎ ±›¡ˆ
-    // º“∏Æ¥¬ ±◊¥Î∑Œ ¡ˆ≥™∞®
-    ASIOTime* result = nullptr;
-    if (g_pThis && g_pThis->m_hostCallbacks.bufferSwitchTimeInfo) {
-        result = g_pThis->m_hostCallbacks.bufferSwitchTimeInfo(timeInfo, index, processNow);
-    }
-
-    // ø¿µø¿ µ•¿Ã≈Õ ∫π¡¶
-    CopyAudioToRingBuffer(index);
-
-    return result;
+ASIOError CDeltaCastDriver::getBufferSize(long* min, long* max, long* pref, long* gran) {
+    return m_backendImpl ? m_backendImpl->GetBufferSize(min, max, pref, gran) : ASE_NotPresent;
+}
+ASIOError CDeltaCastDriver::getSampleRate(ASIOSampleRate* rate) {
+    return m_backendImpl ? m_backendImpl->GetSampleRate(rate) : ASE_NotPresent;
+}
+ASIOError CDeltaCastDriver::setSampleRate(ASIOSampleRate rate) {
+    ASIOError err = m_backendImpl ? m_backendImpl->SetSampleRate(rate) : ASE_NotPresent;
+    if (err == ASE_OK) m_sampleRate = rate;
+    return err;
+}
+ASIOError CDeltaCastDriver::getChannels(long* in, long* out) {
+    return m_backendImpl ? m_backendImpl->GetChannels(in, out) : ASE_NotPresent;
+}
+ASIOError CDeltaCastDriver::getChannelInfo(ASIOChannelInfo* info) {
+    return m_backendImpl ? m_backendImpl->GetChannelInfo(info) : ASE_NotPresent;
+}
+ASIOError CDeltaCastDriver::getSamplePosition(ASIOSamples* sPos, ASIOTimeStamp* tStamp) {
+    return m_backendImpl ? m_backendImpl->GetSamplePosition(sPos, tStamp) : ASE_NotPresent;
+}
+ASIOError CDeltaCastDriver::outputReady() {
+    return m_backendImpl ? m_backendImpl->OutputReady() : ASE_NotPresent;
+}
+ASIOError CDeltaCastDriver::controlPanel() {
+    return m_backendImpl ? m_backendImpl->ControlPanel() : ASE_NotPresent;
+}
+ASIOError CDeltaCastDriver::setClockSource(long reference) {
+    return m_backendImpl ? m_backendImpl->SetClockSource(reference) : ASE_NotPresent;
+}
+ASIOError CDeltaCastDriver::getClockSources(ASIOClockSource* clocks, long* numSources) {
+    return m_backendImpl ? m_backendImpl->GetClockSources(clocks, numSources) : ASE_NotPresent;
+}
+// Í∏∞ÌÉÄ Ìï®Ïàò
+void CDeltaCastDriver::getDriverName(char* name) { strcpy_s(name, 32, "Delta_Cast ASIO"); }
+long CDeltaCastDriver::getDriverVersion() { return 0x010100; }
+void CDeltaCastDriver::getErrorMessage(char* string) {
+    if (m_backendImpl) m_backendImpl->GetErrorMessage(string);
+    else strcpy_s(string, 32, "No Backend");
+}
+ASIOError CDeltaCastDriver::getLatencies(long* inputLatency, long* outputLatency) {
+    return m_backendImpl ? m_backendImpl->GetLatencies(inputLatency, outputLatency) : ASE_NotPresent;
 }
 
-void CDeltaCastDriver::bufferSwitch(long index, ASIOBool directProcess) {
-    if (g_pThis && g_pThis->m_hostCallbacks.bufferSwitch) {
-        g_pThis->m_hostCallbacks.bufferSwitch(index, directProcess);
-    }
-
-    CopyAudioToRingBuffer(index);
+ASIOError CDeltaCastDriver::canSampleRate(ASIOSampleRate sampleRate) {
+    return m_backendImpl ? m_backendImpl->CanSampleRate(sampleRate) : ASE_NotPresent;
 }
 
-bool CDeltaCastDriver::LoadBackendDriver() {
-    if (m_backend) return true;
-    if (!m_hasConfig) {
-        DebugLog("[DeltaCast] Error: Configuration not loaded or invalid.\n");
-        return false;
-    }
-    HRESULT hr = CoCreateInstance(m_targetClsid, nullptr, CLSCTX_INPROC_SERVER, m_targetClsid, (void**)&m_backend);
-    if (SUCCEEDED(hr) && m_backend) {
-        DebugLog("[DeltaCast] Backend Driver Loaded Successfully.\n");
-        return true;
-    }
-    else {
-        DebugLog("[DeltaCast] Failed to load backend driver (HR: 0x%x)\n", hr);
-        return false;
-    }
+ASIOError CDeltaCastDriver::future(long selector, void* opt) {
+    return m_backendImpl ? m_backendImpl->Future(selector, opt) : ASE_NotPresent;
 }
 
-void CDeltaCastDriver::LoadConfiguration() {
-    WCHAR modulePath[MAX_PATH];
-    if (GetModuleFileNameW(g_hModule, modulePath, MAX_PATH) == 0) return;
-
-    // DeltaCast.ini »Æ¿Œ
-    std::wstring configPath = modulePath;
-    size_t lastSlash = configPath.find_last_of(L"\\/");
-    if (lastSlash != std::wstring::npos) {
-        configPath = configPath.substr(0, lastSlash + 1);
+// ---------------------------------------------------------------------------
+// COM Íµ¨ÌòÑ
+// ---------------------------------------------------------------------------
+HRESULT STDMETHODCALLTYPE CDeltaCastDriver::QueryInterface(REFIID riid, void** ppv) {
+    if (riid == IID_IUnknown || riid == kIID_IASIO || riid == CLSID_Delta_Cast) {
+        *ppv = static_cast<IASIO*>(this); AddRef(); return S_OK;
     }
-    configPath += L"DeltaCast.ini";
-
-    DebugLog("[DeltaCast] Loading Config from: %ls\n", configPath.c_str());
-
-    // INIø°º≠ CLSID ¿–±‚
-    WCHAR clsidStr[64] = { 0 };
-    GetPrivateProfileStringW(
-        L"Settings",          // ºΩº«
-        L"TargetDriverCLSID", // ≈∞
-        L"",                  // ±‚∫ª∞™
-        clsidStr,             // ¿˙¿Â«“ πˆ∆€
-        64,                   // πˆ∆€ ≈©±‚
-        configPath.c_str()    // ∆ƒ¿œ ∞Ê∑Œ
-    );
-    // INIø°º≠ WASAPI Device ID ¿–±‚
-    WCHAR wasapiIdBuf[256] = { 0 };
-    GetPrivateProfileStringW(
-        L"Settings",
-        L"TargetWasapiID",
-        L"", // ±‚∫ª∞™: ∫Û πÆ¿⁄ø≠ (±‚∫ª ¿Âƒ°)
-        wasapiIdBuf,
-        256,
-        configPath.c_str()
-    );
-
-    m_targetWasapiId = wasapiIdBuf;
-    DebugLog("[DeltaCast] Target WASAPI ID: %ls\n", m_targetWasapiId.c_str());
-
-    if (wcslen(clsidStr) > 0) {
-        // CLSID ±∏¡∂√º∑Œ ∫Ø»Ø
-        HRESULT hr = CLSIDFromString(clsidStr, &m_targetClsid);
-        if (SUCCEEDED(hr)) {
-            m_hasConfig = true;
-            DebugLog("[DeltaCast] Target CLSID Loaded: %ls\n", clsidStr);
-        }
-        else {
-            DebugLog("[DeltaCast] Invalid CLSID format in INI file.\n");
-        }
-    }
-    else {
-        DebugLog("[DeltaCast] No TargetDriverCLSID found in INI.\n");
-    }
+    *ppv = nullptr; return E_NOINTERFACE;
+}
+ULONG STDMETHODCALLTYPE CDeltaCastDriver::AddRef() { return ++m_refCount; }
+ULONG STDMETHODCALLTYPE CDeltaCastDriver::Release() {
+    ULONG ref = --m_refCount;
+    if (ref == 0) delete this;
+    return ref;
 }
 
-ASIOBool CDeltaCastDriver::init(void* sysHandle) {
-    if (!LoadBackendDriver()) return ASIOFalse;
-    ASIOBool result = m_backend->init(sysHandle);
-    if (result == ASIOTrue) {
-        m_backend->getSampleRate(&m_sampleRate);
-    }
-    return result;
-}
 
-ASIOError CDeltaCastDriver::start() {
-    if (!m_backend) return ASE_NotPresent;
-
-    // WASAPI ∑ª¥ı∑Ø Ω√¿€
-    m_renderer.Start(&m_loopbackBufferL, &m_loopbackBufferR, m_targetWasapiId);
-
-    return m_backend->start();
-}
-
-ASIOError CDeltaCastDriver::stop() {
-    if (!m_backend) return ASE_NotPresent;
-
-    // WASAPI ∑ª¥ı∑Ø ¡ﬂ¡ˆ
-    m_renderer.Stop();
-
-    return m_backend->stop();
-}
-
+// Ï†ïÏ†Å ÏΩúÎ∞±Îì§
 void CDeltaCastDriver::sampleRateChanged(ASIOSampleRate sRate) {
     if (g_pThis && g_pThis->m_hostCallbacks.sampleRateDidChange) g_pThis->m_hostCallbacks.sampleRateDidChange(sRate);
 }
 long CDeltaCastDriver::asioMessage(long selector, long value, void* message, double* opt) {
     if (g_pThis && g_pThis->m_hostCallbacks.asioMessage) return g_pThis->m_hostCallbacks.asioMessage(selector, value, message, opt);
     return 0;
-}
-
-void CDeltaCastDriver::getDriverName(char* name) {
-    strcpy_s(name, 32, "Delta_Cast ASIO");
-}
-
-long CDeltaCastDriver::getDriverVersion() { return 1; }
-
-void CDeltaCastDriver::getErrorMessage(char* string) {
-    if (m_backend) m_backend->getErrorMessage(string);
-    else strcpy_s(string, 32, "Backend Not Loaded");
-}
-
-ASIOError CDeltaCastDriver::getChannels(long* numInputChannels, long* numOutputChannels) {
-    return m_backend ? m_backend->getChannels(numInputChannels, numOutputChannels) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::getLatencies(long* inputLatency, long* outputLatency) {
-    return m_backend ? m_backend->getLatencies(inputLatency, outputLatency) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::getBufferSize(long* minSize, long* maxSize, long* preferredSize, long* granularity) {
-    return m_backend ? m_backend->getBufferSize(minSize, maxSize, preferredSize, granularity) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::canSampleRate(ASIOSampleRate sampleRate) {
-    return m_backend ? m_backend->canSampleRate(sampleRate) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::getSampleRate(ASIOSampleRate* sampleRate) {
-    return m_backend ? m_backend->getSampleRate(sampleRate) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::setSampleRate(ASIOSampleRate sampleRate) {
-    if (!m_backend) return ASE_NotPresent;
-
-    ASIOError result = m_backend->setSampleRate(sampleRate);
-    if (result == ASE_OK) {
-        m_sampleRate = sampleRate;
-    }
-    return result;
-}
-
-ASIOError CDeltaCastDriver::getClockSources(ASIOClockSource* clocks, long* numSources) {
-    return m_backend ? m_backend->getClockSources(clocks, numSources) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::setClockSource(long reference) {
-    return m_backend ? m_backend->setClockSource(reference) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::getSamplePosition(ASIOSamples* sPos, ASIOTimeStamp* tStamp) {
-    return m_backend ? m_backend->getSamplePosition(sPos, tStamp) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::getChannelInfo(ASIOChannelInfo* info) {
-    return m_backend ? m_backend->getChannelInfo(info) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::disposeBuffers() {
-    return m_backend ? m_backend->disposeBuffers() : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::controlPanel() {
-    return m_backend ? m_backend->controlPanel() : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::future(long selector, void* opt) {
-    return m_backend ? m_backend->future(selector, opt) : ASE_NotPresent;
-}
-
-ASIOError CDeltaCastDriver::outputReady() {
-    return m_backend ? m_backend->outputReady() : ASE_NotPresent;
-}
-
-// COM ±∏«ˆ
-HRESULT STDMETHODCALLTYPE CDeltaCastDriver::QueryInterface(REFIID riid, void** ppv) {
-    if (riid == IID_IUnknown || riid == kIID_IASIO || riid == CLSID_Delta_Cast) {
-        *ppv = static_cast<IASIO*>(this);
-        AddRef();
-        return S_OK;
-    }
-    *ppv = nullptr;
-    return E_NOINTERFACE;
-}
-
-ULONG STDMETHODCALLTYPE CDeltaCastDriver::AddRef() {
-    return ++m_refCount;
-}
-
-ULONG STDMETHODCALLTYPE CDeltaCastDriver::Release() {
-    ULONG ref = --m_refCount;
-    if (ref == 0) delete this;
-    return ref;
 }

@@ -1,7 +1,7 @@
-#include "WasapiRenderer.h"
+ï»¿#include "WasapiRenderer.h"
 #include <functiondiscoverykeys_devpkey.h>
 
-// ÇØÁ¦
+// í•´ì œ
 template <class T> void SafeRelease(T** ppT) {
     if (*ppT) { (*ppT)->Release(); *ppT = nullptr; }
 }
@@ -20,10 +20,10 @@ bool CWasapiRenderer::Start(LockFreeRingBuffer<float>* pBufferL, LockFreeRingBuf
     m_pBufferR = pBufferR;
     m_bRunning = true;
 
-    // º°µµ ½º·¹µå¿¡¼­ ¿Àµğ¿À ·»´õ¸µ
+    // ë³„ë„ ìŠ¤ë ˆë“œì—ì„œ ì˜¤ë””ì˜¤ ë Œë”ë§
     m_renderThread = std::thread(&CWasapiRenderer::RenderThreadFunc, this, deviceId);
 
-    // ²÷±è ¹æÁö
+    // ëŠê¹€ ë°©ì§€
     SetThreadPriority(m_renderThread.native_handle(), THREAD_PRIORITY_HIGHEST);
 
     return true;
@@ -45,7 +45,7 @@ std::vector<AudioDevice> CWasapiRenderer::GetOutputDevices() {
     if (FAILED(hr)) return devices;
 
     IMMDeviceCollection* pCollection = nullptr;
-    // È°¼ºÈ­µÈ ÀåÄ¡ °Ë»ö
+    // í™œì„±í™”ëœ ì¥ì¹˜ ê²€ìƒ‰
     hr = pEnumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &pCollection);
 
     if (SUCCEEDED(hr)) {
@@ -56,14 +56,14 @@ std::vector<AudioDevice> CWasapiRenderer::GetOutputDevices() {
             IMMDevice* pDevice = nullptr;
             if (SUCCEEDED(pCollection->Item(i, &pDevice))) {
                 LPWSTR pwszID = nullptr;
-                pDevice->GetId(&pwszID); // ÀåÄ¡ °íÀ¯ ID
+                pDevice->GetId(&pwszID); // ì¥ì¹˜ ê³ ìœ  ID
 
                 IPropertyStore* pProps = nullptr;
                 pDevice->OpenPropertyStore(STGM_READ, &pProps);
 
                 PROPVARIANT varName;
                 PropVariantInit(&varName);
-                pProps->GetValue(PKEY_Device_FriendlyName, &varName); // »ç¶÷ÀÌ ÀĞÀ» ¼ö ÀÖ´Â ÀÌ¸§
+                pProps->GetValue(PKEY_Device_FriendlyName, &varName); // ì‚¬ëŒì´ ì½ì„ ìˆ˜ ìˆëŠ” ì´ë¦„
 
                 if (pwszID && varName.pwszVal) {
                     devices.push_back({ pwszID, varName.pwszVal });
@@ -83,45 +83,45 @@ std::vector<AudioDevice> CWasapiRenderer::GetOutputDevices() {
 
 void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
     try {
-        // ½º·¹µå ½ÃÀÛ ½Ã COM ÃÊ±âÈ­ 
+        // ìŠ¤ë ˆë“œ ì‹œì‘ ì‹œ COM ì´ˆê¸°í™” 
         HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (FAILED(hr)) {
-            // ¾ÆÆÄÆ®¸ÕÆ® ¸ğµ¨ ½Ãµµ
+            // ì•„íŒŒíŠ¸ë¨¼íŠ¸ ëª¨ë¸ ì‹œë„
             hr = CoInitialize(nullptr);
         }
-        // ÀåÄ¡ ¿­°Å
+        // ì¥ì¹˜ ì—´ê±°
         hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
             CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&m_pEnumerator);
         if (FAILED(hr)) return;
 
-        // Ãâ·Â ÀåÄ¡ °¡Á®¿À±â
+        // ì¶œë ¥ ì¥ì¹˜ ê°€ì ¸ì˜¤ê¸°
         if (targetDeviceId.empty()) {
             m_pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &m_pDevice);
         }
         else {
-            // »ç¿ëÀÚ°¡ ¼±ÅÃÇÑ ÀåÄ¡
+            // ì‚¬ìš©ìê°€ ì„ íƒí•œ ì¥ì¹˜
             hr = m_pEnumerator->GetDevice(targetDeviceId.c_str(), &m_pDevice);
             if (FAILED(hr)) {
-                // ½ÇÆĞ ½Ã ±âº» ÀåÄ¡
+                // ì‹¤íŒ¨ ì‹œ ê¸°ë³¸ ì¥ì¹˜
                 m_pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &m_pDevice);
             }
         }
 
         if (!m_pDevice) return;
 
-        // Audio Client È°¼ºÈ­
+        // Audio Client í™œì„±í™”
         hr = m_pDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&m_pAudioClient);
         if (FAILED(hr)) return;
 
-        // Æ÷¸Ë ¼³Á¤ (Float 32bit, Stereo, 48kHz or 44.1kHz) 
+        // í¬ë§· ì„¤ì • (Float 32bit, Stereo, 48kHz or 44.1kHz) 
         WAVEFORMATEX* pMixFormat = nullptr;
         m_pAudioClient->GetMixFormat(&pMixFormat);
 
-        // ÃÊ±âÈ­ (°øÀ¯ ¸ğµå)
-        // REFTIMES_PER_SEC = 10000000 (100ns) / ¹öÆÛ ±æÀÌ 10ms
+        // ì´ˆê¸°í™” (ê³µìœ  ëª¨ë“œ)
+        // REFTIMES_PER_SEC = 10000000 (100ns) / ë²„í¼ ê¸¸ì´ 10ms
         REFERENCE_TIME hnsRequestedDuration = 10000000 / 100;
 
-        // ÀÌº¥Æ® ÇÚµé
+        // ì´ë²¤íŠ¸ í•¸ë“¤
         HANDLE hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
         if (!hEvent) return;
 
@@ -138,36 +138,36 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
         hr = m_pAudioClient->SetEventHandle(hEvent);
         if (FAILED(hr)) { CloseHandle(hEvent); return; }
 
-        // ·»´õ Å¬¶óÀÌ¾ğÆ® ¼­ºñ½º È¹µæ
+        // ë Œë” í´ë¼ì´ì–¸íŠ¸ ì„œë¹„ìŠ¤ íšë“
         hr = m_pAudioClient->GetService(__uuidof(IAudioRenderClient), (void**)&m_pRenderClient);
         if (FAILED(hr)) return;
 
-        // ¹öÆÛ Å©±â È®ÀÎ
+        // ë²„í¼ í¬ê¸° í™•ì¸
         UINT32 bufferFrameCount;
         m_pAudioClient->GetBufferSize(&bufferFrameCount);
 
-        // Àç»ı ½ÃÀÛ
+        // ì¬ìƒ ì‹œì‘
         m_pAudioClient->Start();
 
         BYTE* pData = nullptr;
         UINT32 padding;
         UINT32 available;
 
-        // --- ·»´õ¸µ ·çÇÁ ---
+        // --- ë Œë”ë§ ë£¨í”„ ---
         while (m_bRunning) {
 
-            // ½ÅÈ£ ´ë±â
+            // ì‹ í˜¸ ëŒ€ê¸°
             DWORD waitResult = WaitForSingleObject(hEvent, 1000);
             if (waitResult != WAIT_OBJECT_0) break;
 
-            // ÇöÀç ¹öÆÛ¿¡ µ¥ÀÌÅÍ È®ÀÎ
+            // í˜„ì¬ ë²„í¼ì— ë°ì´í„° í™•ì¸
             hr = m_pAudioClient->GetCurrentPadding(&padding);
 
-            // °¡¿ë °ø°£
+            // ê°€ìš© ê³µê°„
             available = bufferFrameCount - padding;
 
             if (available > 0) {
-                // WASAPI ¹öÆÛ Àá±İ
+                // WASAPI ë²„í¼ ì ê¸ˆ
                 hr = m_pRenderClient->GetBuffer(available, &pData);
                 if (FAILED(hr)) {
                     break;
@@ -176,11 +176,11 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
                     float* pOut = (float*)pData;
                     int channels = pMixFormat->nChannels;
 
-                    // ¸µ¹öÆÛ È®ÀÎ
+                    // ë§ë²„í¼ í™•ì¸
                     size_t availableSamples = m_pBufferL->GetAvailableRead();
 
                     if (availableSamples > bufferFrameCount * 4) {
-                        // ¹ö¸²
+                        // ë²„ë¦¼
                         float dummy[1024];
                         m_pBufferL->Pop(dummy, 1024);
                         m_pBufferR->Pop(dummy, 1024);
@@ -191,15 +191,15 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
                         continue;
                     }
 
-                    // ÀÓ½Ã¹öÆÛ
+                    // ì„ì‹œë²„í¼
                     std::vector<float> tempL(available);
                     std::vector<float> tempR(available);
 
-                    // ¸µ¹öÆÛ Pop
+                    // ë§ë²„í¼ Pop
                     size_t readL = m_pBufferL->Pop(tempL.data(), available);
                     size_t readR = m_pBufferR->Pop(tempR.data(), available);
 
-                    // ºÎÁ·½Ã 0(Ä§¹¬)
+                    // ë¶€ì¡±ì‹œ 0(ì¹¨ë¬µ)
                     for (size_t i = readL; i < available; i++) tempL[i] = 0.0f;
                     for (size_t i = readR; i < available; i++) tempR[i] = 0.0f;
 
@@ -216,7 +216,7 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
             }
         }
 
-        // Á¤¸®
+        // ì •ë¦¬
         CloseHandle(hEvent);
         m_pAudioClient->Stop();
         CoTaskMemFree(pMixFormat);
@@ -227,7 +227,7 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
         CoUninitialize();
     }
     catch (...) {
-        // ¿¡·¯½Ã µå¶óÀÌ¹ö¸¸ Á¾·á
+        // ì—ëŸ¬ì‹œ ë“œë¼ì´ë²„ë§Œ ì¢…ë£Œ
         if (m_pAudioClient) m_pAudioClient->Stop();
     }
 

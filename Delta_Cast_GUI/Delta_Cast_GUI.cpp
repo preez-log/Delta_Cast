@@ -32,6 +32,8 @@ HWND hComboAsio, hComboWasapi, hBtnSave, hBtnInit, hBtnUnInit, hStatus;
 // 레지스트리에서 ASIO 드라이버 목록 스캔
 void ScanAsioDrivers() {
     g_asioList.clear();
+
+    g_asioList.push_back({ L"[Virtual] Delta_Cast ASIO", L"Virtual" });
     HKEY hKey;
     if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"SOFTWARE\\ASIO", 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
         return;
@@ -118,7 +120,7 @@ bool SaveConfig(const std::wstring& asioClsid, const std::wstring& wasapiId) {
     WCHAR path[MAX_PATH];
     GetModuleFileName(NULL, path, MAX_PATH);
     std::wstring configPath = path;
-    configPath = configPath.substr(0, configPath.find_last_of(L"\\/") + 1) + L"DeltaCast.ini";
+    configPath = configPath.substr(0, configPath.find_last_of(L"\\/") + 1) + L"Delta_Cast.ini";
     bool b1 = WritePrivateProfileString(L"Settings", L"TargetDriverCLSID", asioClsid.c_str(), configPath.c_str());
     bool b2 = WritePrivateProfileString(L"Settings", L"TargetWasapiID", wasapiId.c_str(), configPath.c_str());
     return b1 && b2;
@@ -271,7 +273,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
     RegisterClassExW(&wcex);
 
     // 윈도우 생성
-    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Configuration", 
+    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config V1.1.0", 
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, 
         0, 400, 260, NULL, NULL, hInstance, NULL);
     ShowWindow(hWnd, nCmdShow);

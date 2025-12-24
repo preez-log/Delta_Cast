@@ -1,4 +1,4 @@
-LIBRARY Delta_Cast
+﻿LIBRARY Delta_Cast
 EXPORTS
     DllMain private
     DllGetClassObject private
