@@ -273,7 +273,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
     RegisterClassExW(&wcex);
 
     // 윈도우 생성
-    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config V1.1.0", 
+    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config V1.2.0", 
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, 
         0, 400, 260, NULL, NULL, hInstance, NULL);
     ShowWindow(hWnd, nCmdShow);

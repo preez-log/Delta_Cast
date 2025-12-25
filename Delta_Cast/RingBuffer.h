@@ -5,32 +5,41 @@
 // ---------------------------------------------------------------------------
 // Lock-Free Ring Buffer
 // ---------------------------------------------------------------------------
-template <typename T>
-class LockFreeRingBuffer {
+class ByteRingBuffer {
 public:
-    explicit LockFreeRingBuffer(size_t size = 65536)
-        : m_size(size), m_mask(size - 1), m_buffer(size) {
-        // 읽기/쓰기 포인터
+    explicit ByteRingBuffer(size_t sizeBytes = 65536) // 기본 4MB
+        : m_size(sizeBytes), m_mask(sizeBytes - 1), m_buffer(sizeBytes) {
+        // 읽기/쓰기 포인터 초기화
         m_writeIndex.store(0, std::memory_order_relaxed);
         m_readIndex.store(0, std::memory_order_relaxed);
     }
 
     // 데이터 밀어넣기
-    void Push(const T* data, size_t count) {
+    void Push(const void* input, size_t numBytes) {
         size_t writeIdx = m_writeIndex.load(std::memory_order_acquire);
         size_t readIdx = m_readIndex.load(std::memory_order_acquire);
 
-        // 여유 공간 확인
         size_t avail = m_size - (writeIdx - readIdx);
-        if (avail < count) return;
+        if (avail < numBytes) {
+            return;
+        }
 
-        for (size_t i = 0; i < count; ++i) {
-            // 비트 연산
-            m_buffer[(writeIdx + i) & m_mask] = data[i];
+        const uint8_t* pIn = static_cast<const uint8_t*>(input);
+
+        // 링버퍼 끝부분 처리
+        size_t offset = writeIdx & m_mask;
+        size_t toEnd = m_size - offset;
+
+        if (numBytes <= toEnd) {
+            memcpy(&m_buffer[offset], pIn, numBytes);
+        }
+        else {
+            memcpy(&m_buffer[offset], pIn, toEnd);
+            memcpy(&m_buffer[0], pIn + toEnd, numBytes - toEnd);
         }
 
         // 인덱스 업데이트
-        m_writeIndex.store(writeIdx + count, std::memory_order_release);
+        m_writeIndex.store(writeIdx + numBytes, std::memory_order_release);
     }
 
     size_t GetAvailableRead() const {
@@ -40,17 +49,25 @@ public:
     }
 
     // 데이터 꺼내오기
-    size_t Pop(T* output, size_t count) {
+    size_t Pop(void* output, size_t numBytes) {
         size_t writeIdx = m_writeIndex.load(std::memory_order_acquire);
         size_t readIdx = m_readIndex.load(std::memory_order_acquire);
 
         size_t availableData = writeIdx - readIdx;
         if (availableData == 0) return 0; // 데이터 없음
 
-        size_t toRead = (count > availableData) ? availableData : count;
+        size_t toRead = (numBytes > availableData) ? availableData : numBytes;
+        uint8_t* pOut = static_cast<uint8_t*>(output);
 
-        for (size_t i = 0; i < toRead; ++i) {
-            output[i] = m_buffer[(readIdx + i) & m_mask];
+        size_t offset = readIdx & m_mask;
+        size_t toEnd = m_size - offset;
+
+        if (toRead <= toEnd) {
+            memcpy(pOut, &m_buffer[offset], toRead);
+        }
+        else {
+            memcpy(pOut, &m_buffer[offset], toEnd);
+            memcpy(pOut + toEnd, &m_buffer[0], toRead - toEnd);
         }
 
         // 인덱스 업데이트
@@ -58,10 +75,26 @@ public:
         return toRead;
     }
 
+    // 현재 쓸 수 있는 공간
+    size_t GetAvailableWrite() const {
+        size_t w = m_writeIndex.load(std::memory_order_acquire);
+        size_t r = m_readIndex.load(std::memory_order_acquire);
+        size_t used = w - r;
+        return (used < m_size) ? (m_size - used) : 0;
+    }
+
+    // 현재 채워진 데이터 
+    size_t GetFillSize() const {
+        size_t w = m_writeIndex.load(std::memory_order_acquire);
+        size_t r = m_readIndex.load(std::memory_order_acquire);
+        return w - r;
+    }
+
 private:
-    std::vector<T> m_buffer;
+    std::vector<uint8_t> m_buffer;
     size_t m_size;
     size_t m_mask;
-    std::atomic<size_t> m_writeIndex;
-    std::atomic<size_t> m_readIndex;
+    alignas(64) std::atomic<size_t> m_writeIndex;
+    alignas(64) std::atomic<size_t> m_readIndex;
+    char _padding[64];
 };

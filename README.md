@@ -61,7 +61,7 @@ Delta_Cast는 게임과 하드웨어 사이에서 오디오 데이터를 Zero-La
 
 **빌드 순서:**
 1.  이 저장소를 Clone 합니다.
-2.  Visual Studio 2022에서 `Delta_Cast.sln`을 엽니다.
+2.  Visual Studio 2026에서 `Delta_Cast.sln`을 엽니다.
 3.  구성을 **Release / x64**로 설정합니다.
 4.  솔루션 빌드를 실행합니다.
 5.  (선택 사항) `signtool`을 사용하여 DLL에 서명합니다.

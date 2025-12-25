@@ -1,5 +1,9 @@
 ﻿#pragma once
 #include <windows.h>
+#ifndef MY_ASIO
+#define MY_ASIO
+#include <iasiodrv.h>
+#endif
 #include <vector>
 #include <thread>
 #include <atomic>
@@ -100,7 +104,9 @@ public:
         return ASE_OK;
     }
     ASIOError CanSampleRate(ASIOSampleRate sampleRate) override {
-        if (sampleRate == 44100.0 || sampleRate == 48000.0 || sampleRate == 88200.0 || sampleRate == 96000.0)
+        if (sampleRate == 44100.0 || sampleRate == 48000.0 || sampleRate == 88200.0 || 
+            sampleRate == 96000.0 || sampleRate == 176400.0 || sampleRate == 192000.0 ||
+            sampleRate == 352800.0 || sampleRate == 384000.0)
             return ASE_OK;
         return ASE_NoClock;
     }
@@ -110,7 +116,7 @@ private:
     void VirtualClockLoop(); // 가상 클럭 루프
 
     CDeltaCastDriver* m_owner = nullptr;
-    double m_sampleRate = 44100.0;
+    double m_sampleRate = 48000.0;
     long m_bufferSize = 0;
 
     // 가상 자원

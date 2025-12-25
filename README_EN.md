@@ -56,7 +56,7 @@ Developers can modify the source code and build it themselves.
 
 **Build Steps:**
 1.  Clone this repository.
-2.  Open `Delta_Cast.sln` in Visual Studio 2022.
+2.  Open `Delta_Cast.sln` in Visual Studio 2026.
 3.  Set the configuration to **Release / x64**.
 4.  Build the solution.
 5.  (Optional) Sign the DLL using `signtool`.
