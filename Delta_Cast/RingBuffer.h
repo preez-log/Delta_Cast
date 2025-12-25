@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 class ByteRingBuffer {
 public:
-    explicit ByteRingBuffer(size_t sizeBytes = 65536) // 기본 4MB
+	explicit ByteRingBuffer(size_t sizeBytes = 131072) // 기본 크기 128KB
         : m_size(sizeBytes), m_mask(sizeBytes - 1), m_buffer(sizeBytes) {
         // 읽기/쓰기 포인터 초기화
         m_writeIndex.store(0, std::memory_order_relaxed);

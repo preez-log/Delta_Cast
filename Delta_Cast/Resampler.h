@@ -28,6 +28,8 @@ public:
         return a0 * t * t2 + a1 * t2 + a2 * t + a3;
     }
 
+    double GetReadIndex() const { return m_readIndex; }
+
     size_t Process(const float* input, size_t inCount, float* output, size_t maxOutCount) {
         if (inCount == 0 || !output) return 0;
 

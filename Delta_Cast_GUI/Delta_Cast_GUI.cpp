@@ -11,12 +11,13 @@
 #pragma comment(lib, "comctl32.lib")
 
 // 컨트롤 ID 
-#define IDC_COMBO_ASIO   101 // ASIO 콤보박스
-#define IDC_COMBO_WASAPI 102 // WASAPI 콤보박스
-#define IDC_BTN_SAVE     103 // 저장 버튼
-#define IDC_BTN_INIT     104 // 등록 버튼
-#define IDC_BTN_UNINIT   105 // 제거 버튼
-#define IDC_STATUS_TEXT  106 // 상태
+#define IDC_COMBO_ASIO    101 // ASIO 콤보박스
+#define IDC_COMBO_WASAPI  102 // WASAPI 콤보박스
+#define IDC_BTN_SAVE      103 // 저장 버튼
+#define IDC_BTN_INIT      104 // 등록 버튼
+#define IDC_BTN_UNINIT    105 // 제거 버튼
+#define IDC_STATUS_TEXT   106 // 상태
+#define IDC_COMBO_LATENCY 107 // 지연 시간 콤보박스
 
 // 드라이버 정보 구조체
 struct DeviceInfo {
@@ -27,7 +28,7 @@ struct DeviceInfo {
 // 전역 변수
 std::vector<DeviceInfo> g_asioList;
 std::vector<DeviceInfo> g_wasapiList;
-HWND hComboAsio, hComboWasapi, hBtnSave, hBtnInit, hBtnUnInit, hStatus;
+HWND hComboAsio, hComboWasapi, hBtnSave, hBtnInit, hBtnUnInit, hStatus, hComboLatency;
 
 // 레지스트리에서 ASIO 드라이버 목록 스캔
 void ScanAsioDrivers() {
@@ -116,14 +117,15 @@ void ScanWasapiDevices() {
 }
 
 // INI 파일에 저장
-bool SaveConfig(const std::wstring& asioClsid, const std::wstring& wasapiId) {
+bool SaveConfig(const std::wstring& asioClsid, const std::wstring& wasapiId, int latencyMode) {
     WCHAR path[MAX_PATH];
     GetModuleFileName(NULL, path, MAX_PATH);
     std::wstring configPath = path;
     configPath = configPath.substr(0, configPath.find_last_of(L"\\/") + 1) + L"Delta_Cast.ini";
-    bool b1 = WritePrivateProfileString(L"Settings", L"TargetDriverCLSID", asioClsid.c_str(), configPath.c_str());
-    bool b2 = WritePrivateProfileString(L"Settings", L"TargetWasapiID", wasapiId.c_str(), configPath.c_str());
-    return b1 && b2;
+    std::wstring modeStr = std::to_wstring(latencyMode);
+    WritePrivateProfileString(L"Settings", L"TargetDriverCLSID", asioClsid.c_str(), configPath.c_str());
+    WritePrivateProfileString(L"Settings", L"TargetWasapiID", wasapiId.c_str(), configPath.c_str());
+    return WritePrivateProfileString(L"Settings", L"LatencyMode", modeStr.c_str(), configPath.c_str());
 }
 
 // 드라이버 등록 / 해제
@@ -186,30 +188,40 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             hComboWasapi = CreateWindow(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 20, 105, 340, 200, hWnd, (HMENU)IDC_COMBO_WASAPI, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
             SendMessage(hComboWasapi, WM_SETFONT, (WPARAM)hFont, 0);
 
+            CreateWindow(L"STATIC", L"3. Select Latency Mode:", WS_CHILD | WS_VISIBLE, 20, 140, 300, 20, hWnd, NULL, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+            hComboLatency = CreateWindow(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 20, 165, 340, 200, hWnd, (HMENU)IDC_COMBO_LATENCY, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+            SendMessage(hComboLatency, WM_SETFONT, (WPARAM)hFont, 0);
+
+            // 목록 추가 (인덱스 0~3)
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"16384 samples (42ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"8192 samples (21ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"4096 samples (10ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"2048 samples (5ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"1024 samples (2.5ms)");
+
+            // 기본값: 10ms
+            SendMessage(hComboLatency, CB_SETCURSEL, 2, 0);
+
             // 저장 버튼
             hBtnSave = CreateWindow(L"BUTTON", L"Save Config", 
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 
-                20, 150, 100, 30, hWnd, 
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 210, 100, 30, hWnd, 
                 (HMENU)IDC_BTN_SAVE, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
             SendMessage(hBtnSave, WM_SETFONT, (WPARAM)hFont, 0);
 
             // Init (Register) 버튼 - 초기에는 비활성화
             hBtnInit = CreateWindow(L"BUTTON", L"Init Driver", 
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_DISABLED, 
-                130, 150, 100, 30, hWnd, 
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_DISABLED, 130, 210, 100, 30, hWnd, 
                 (HMENU)IDC_BTN_INIT, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
             SendMessage(hBtnInit, WM_SETFONT, (WPARAM)hFont, 0);
 
             // Uninstall 버튼
             hBtnUnInit = CreateWindow(L"BUTTON", L"Uninstall", 
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 
-                240, 150, 80, 30, hWnd, 
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 240, 210, 80, 30, hWnd, 
                 (HMENU)IDC_BTN_UNINIT, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
             SendMessage(hBtnUnInit, WM_SETFONT, (WPARAM)hFont, 0);
 
             hStatus = CreateWindow(L"STATIC", L"Status: Waiting for configuration...", 
-                WS_CHILD | WS_VISIBLE, 
-                20, 190, 340, 20, hWnd, 
+                WS_CHILD | WS_VISIBLE, 20, 250, 340, 20, hWnd, 
                 (HMENU)IDC_STATUS_TEXT, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
             SendMessage(hStatus, WM_SETFONT, (WPARAM)hFont, 0);
 
@@ -220,7 +232,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             // 콤보박스
             for (const auto& d : g_asioList) SendMessage(hComboAsio, CB_ADDSTRING, 0, (LPARAM)d.name.c_str());
             for (const auto& d : g_wasapiList) SendMessage(hComboWasapi, CB_ADDSTRING, 0, (LPARAM)d.name.c_str());
-
+            
             // 첫 번째 항목 선택
             SendMessage(hComboAsio, CB_SETCURSEL, 0, 0);
             SendMessage(hComboWasapi, CB_SETCURSEL, 0, 0);
@@ -231,9 +243,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (LOWORD(wParam) == IDC_BTN_SAVE) {
             int idxAsio = (int)SendMessage(hComboAsio, CB_GETCURSEL, 0, 0);
             int idxWasapi = (int)SendMessage(hComboWasapi, CB_GETCURSEL, 0, 0);
+            int idxLatency = (int)SendMessage(hComboLatency, CB_GETCURSEL, 0, 0);
 
             if (idxAsio >= 0 && idxAsio < g_asioList.size() && idxWasapi >= 0 && idxWasapi < g_wasapiList.size()) {
-                if (SaveConfig(g_asioList[idxAsio].id, g_wasapiList[idxWasapi].id)) {
+                if (SaveConfig(g_asioList[idxAsio].id, g_wasapiList[idxWasapi].id, idxLatency)) {
                     SetWindowText(hStatus, L"Status: Configuration Saved. Press 'Init'!");
                     // 저장 성공 > Init 버튼 활성화
                     EnableWindow(hBtnInit, TRUE);
@@ -273,9 +286,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
     RegisterClassExW(&wcex);
 
     // 윈도우 생성
-    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config V1.2.0", 
+    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config V1.2.1", 
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, 
-        0, 400, 260, NULL, NULL, hInstance, NULL);
+        0, 400, 350, NULL, NULL, hInstance, NULL);
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
 

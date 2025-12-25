@@ -14,8 +14,8 @@
 #include "Resampler.h"
 
 namespace Config {
-	// 링버퍼 크기: 16KB 
-    const size_t RING_BUFFER_SIZE = 16384;
+	// 링버퍼 크기: 64KB 
+    const size_t RING_BUFFER_SIZE = 131072;
 
     // 가상 모드 타임아웃 (20ms)
     const auto VIRTUAL_TIMEOUT = std::chrono::milliseconds(20);
@@ -61,7 +61,7 @@ public:
     static CDeltaCastDriver* g_pThis;
 
 	// --- 송출 버퍼 ---
-	ByteRingBuffer m_loopbackBufferL{ Config::RING_BUFFER_SIZE }; // 16KB
+	ByteRingBuffer m_loopbackBufferL{ Config::RING_BUFFER_SIZE };
     ByteRingBuffer m_loopbackBufferR{ Config::RING_BUFFER_SIZE };
 
 	// --- 버퍼 스위치 트리거 ---
@@ -109,4 +109,7 @@ private:
     CLSID m_targetClsid = { 0 };
     std::wstring m_targetWasapiId;
     bool m_isVirtualMode = false;
+
+	// 레이턴시 모드 (기본: 1)
+    int m_latencyMode = 1;
 };
