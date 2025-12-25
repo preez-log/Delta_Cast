@@ -2,11 +2,16 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
+#ifndef MY_ASIO
+#define MY_ASIO
+#include <iasiodrv.h>
+#endif
 #include <vector>
 #include <string>
 #include <thread>
 #include <atomic>
 #include "RingBuffer.h"
+#include "Resampler.h"
 
 struct AudioDevice {
     std::wstring id;
@@ -22,18 +27,32 @@ public:
     std::vector<AudioDevice> GetOutputDevices();
 
     // 초기화 및 재생 시작
-    bool Start(LockFreeRingBuffer<float>* pBufferL, LockFreeRingBuffer<float>* pBufferR, const std::wstring& deviceId);
+    bool Start(ByteRingBuffer* pBufferL, ByteRingBuffer* pBufferR,
+        const std::wstring& deviceId,
+        ASIOSampleType sampleType, double inputSampleRate);
     // 재생 중지
     void Stop();
 
 private:
     void RenderThreadFunc(std::wstring targetDeviceId);
+    void ConvertRawToFloat(const void* input, float* output, size_t sampleCount);
 
     std::atomic<bool> m_bRunning{ false };
     std::thread m_renderThread;
 
-    LockFreeRingBuffer<float>* m_pBufferL = nullptr;
-    LockFreeRingBuffer<float>* m_pBufferR = nullptr;
+    ByteRingBuffer* m_pBufferL = nullptr;
+    ByteRingBuffer* m_pBufferR = nullptr;
+
+    ASIOSampleType m_sampleType = ASIOSTFloat32LSB;
+    double m_inputRate = 48000.0;
+
+    Resampler m_resamplerL;
+    Resampler m_resamplerR;
+
+    // 임시 버퍼
+    std::vector<uint8_t> m_rawTempL, m_rawTempR;
+    std::vector<float>   m_floatTempL, m_floatTempR;
+    std::vector<float>   m_resampledTempL, m_resampledTempR;
 
     // WASAPI 인터페이스
     IMMDeviceEnumerator* m_pEnumerator = nullptr;

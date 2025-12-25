@@ -2,6 +2,13 @@
 #include <chrono>
 #include <thread>
 #include <immintrin.h>
+#include <Windows.h>
+#pragma comment(lib, "winmm.lib")
+
+struct TimerResolutionSetter {
+    TimerResolutionSetter() { timeBeginPeriod(1); }
+    ~TimerResolutionSetter() { timeEndPeriod(1); }
+};
 
 class PrecisionClock {
 public:
@@ -52,8 +59,6 @@ public:
         while (now < target_time) {
             auto remaining = target_time - now;
 
-            // 남은 시간이 2ms 이상일 때만 Sleep으로 CPU 양보 (1000Hz 미만)
-            // 1000, 8000Hz 등 고주파 루프에서는 항상 남은시간이 2ms 이하 이므로 sleep 호출 되지않음
             if (remaining > std::chrono::milliseconds(2)) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }

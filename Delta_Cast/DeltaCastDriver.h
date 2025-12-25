@@ -1,13 +1,29 @@
 ﻿#pragma once
 #include <windows.h>
+#ifndef MY_ASIO
+#define MY_ASIO
 #include <iasiodrv.h>
+#endif
 #include <atomic>
 #include <memory>
+#include <chrono>
 
 #include "RingBuffer.h"
 #include "DriverBackend.h"
 #include "WasapiRenderer.h"
 #include "Resampler.h"
+
+namespace Config {
+    // 링버퍼 크기: 64KB (2ch Float 기준 약 0.18초 분량)
+    const size_t RING_BUFFER_SIZE = 65536;
+
+    // 가상 모드 타임아웃 (20ms)
+    const auto VIRTUAL_TIMEOUT = std::chrono::milliseconds(20);
+
+    // 클럭 제어 범위 (35% ~ 65%)
+    const double BUFFER_TARGET_LOW = 0.35;
+    const double BUFFER_TARGET_HIGH = 0.65;
+}
 
 class CDeltaCastDriver : public IASIO {
 public:
@@ -45,8 +61,8 @@ public:
     static CDeltaCastDriver* g_pThis;
 
 	// --- 송출 버퍼 ---
-    LockFreeRingBuffer<float> m_loopbackBufferL{ 131072 }; // 약 2초 분량
-    LockFreeRingBuffer<float> m_loopbackBufferR{ 131072 };
+    ByteRingBuffer m_loopbackBufferL{ Config::RING_BUFFER_SIZE }; // 4MB
+    ByteRingBuffer m_loopbackBufferR{ Config::RING_BUFFER_SIZE };
 
 	// --- 버퍼 스위치 트리거 ---
     void TriggerBufferSwitch(long doubleBufferIndex);
@@ -64,23 +80,18 @@ private:
     // --- 공통 오디오 처리 ---
     void CopyAudioToRingBuffer(long index);
 
+    int GetSampleSize(ASIOSampleType type);
+
     ASIOCallbacks m_hostCallbacks;
     ASIOCallbacks m_myCallbacks;
     ASIOBufferInfo* m_bufferInfos = nullptr;
     ASIOSampleType m_sampleType = ASIOSTFloat32LSB;
-    ASIOSampleRate m_sampleRate = 44100.0;
+    ASIOSampleRate m_sampleRate = 48000.0;
     long m_numChannels = 0;
     long m_bufferSize = 0;
     long m_outIndexL = -1;
     long m_outIndexR = -1;
     long m_lastProcessedBufferIndex = -1;
-
-    std::vector<float> m_convertBufferL;
-    std::vector<float> m_convertBufferR;
-    std::vector<float> m_resampledDataL;
-    std::vector<float> m_resampledDataR;
-    Resampler m_resamplerL;
-    Resampler m_resamplerR;
 
     // WASAPI 렌더러
     CWasapiRenderer m_renderer;
