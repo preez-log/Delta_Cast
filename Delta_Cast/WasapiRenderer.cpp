@@ -2,6 +2,7 @@
 #include <functiondiscoverykeys_devpkey.h>
 #include <immintrin.h>
 #include <avrt.h>
+#include <cmath>
 #pragma comment(lib, "avrt.lib")
 
 const float INT32_TO_FLOAT = 4.65661287e-10f;
@@ -14,12 +15,10 @@ template <class T> void SafeRelease(T** ppT) {
 }
 
 CWasapiRenderer::CWasapiRenderer() {}
-
 CWasapiRenderer::~CWasapiRenderer() { Stop(); }
 
 bool CWasapiRenderer::Start(ByteRingBuffer* pBufferL, ByteRingBuffer* pBufferR,
-    const std::wstring& deviceId,
-    ASIOSampleType sampleType, double inputSampleRate)
+    const std::wstring& deviceId,ASIOSampleType sampleType, double inputSampleRate, size_t threshold)
 {
     if (m_bRunning) return true;
 
@@ -29,10 +28,10 @@ bool CWasapiRenderer::Start(ByteRingBuffer* pBufferL, ByteRingBuffer* pBufferR,
     m_inputRate = inputSampleRate;
 
     m_bRunning = true;
-    m_renderThread = std::thread(&CWasapiRenderer::RenderThreadFunc, this, deviceId);
+    m_renderThread = std::thread(&CWasapiRenderer::RenderThreadFunc, this, deviceId, threshold);
 
     // 오디오 스레드 우선순위 높임
-    SetThreadPriority(m_renderThread.native_handle(), THREAD_PRIORITY_HIGHEST);
+    SetThreadPriority(m_renderThread.native_handle(), THREAD_PRIORITY_TIME_CRITICAL);
 
     return true;
 }
@@ -145,38 +144,28 @@ void CWasapiRenderer::ConvertRawToFloat(const void* input, float* output, size_t
     }
 }
 
-void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
+void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId, size_t safeThreshold) {
     HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     DWORD taskIndex = 0;
     HANDLE hTask = AvSetMmThreadCharacteristics(L"Pro Audio", &taskIndex);
     if (hTask == NULL) {
         // 실패 시 높은 우선순위
-        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
     }
     try {
         // 스레드 시작 시 COM 초기화 
         HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
             __uuidof(IMMDeviceEnumerator), (void**)&m_pEnumerator);
-        if (FAILED(hr)) return;
+        if (FAILED(hr)) throw std::exception("Enum failed");
 
         // 출력 장치 가져오기
-        if (targetDeviceId.empty()) {
-            m_pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &m_pDevice);
-        }
-        else {
-            // 사용자가 선택한 장치
-            hr = m_pEnumerator->GetDevice(targetDeviceId.c_str(), &m_pDevice);
-            if (FAILED(hr)) {
-                // 실패 시 기본 장치
-                m_pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &m_pDevice);
-            }
-        }
-
-        if (!m_pDevice) return;
+        if (targetDeviceId.empty()) m_pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &m_pDevice);
+        else m_pEnumerator->GetDevice(targetDeviceId.c_str(), &m_pDevice);
+        if (!m_pDevice) throw std::exception("No Device");
 
         // Audio Client 활성화
         hr = m_pDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&m_pAudioClient);
-        if (FAILED(hr)) return;
+        if (FAILED(hr)) throw std::exception("Activate failed");
 
         // 포맷 설정 (Float 32bit, Stereo, 48kHz or 44.1kHz) 
         WAVEFORMATEX* pMixFormat = nullptr;
@@ -188,30 +177,20 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
         m_resamplerL.Setup(m_inputRate, outRate);
         m_resamplerR.Setup(m_inputRate, outRate);
 
-        // 초기화 (공유 모드)
-        // REFTIMES_PER_SEC = 10000000 (100ns) / 버퍼 길이 10ms
-        REFERENCE_TIME hnsRequestedDuration = 100000;
+        bool needResample = (std::abs(m_inputRate - outRate) > 1.0);
+
+        // 버퍼 설정
+        REFERENCE_TIME hnsRequestedDuration = 50000;
 
         // 이벤트 핸들
         HANDLE hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-        if (!hEvent) return;
+        hr = m_pAudioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+            hnsRequestedDuration, 0, pMixFormat, nullptr);
+        if (FAILED(hr)) { CloseHandle(hEvent); throw std::exception("Init failed"); }
 
-        hr = m_pAudioClient->Initialize(
-            AUDCLNT_SHAREMODE_SHARED,
-            AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-            hnsRequestedDuration,
-            0,
-            pMixFormat,
-            nullptr);
-
-        if (FAILED(hr)) { CloseHandle(hEvent); return; }
-
-        hr = m_pAudioClient->SetEventHandle(hEvent);
-        if (FAILED(hr)) { CloseHandle(hEvent); return; }
-
-        // 렌더 클라이언트 서비스 획득
-        hr = m_pAudioClient->GetService(__uuidof(IAudioRenderClient), (void**)&m_pRenderClient);
-        if (FAILED(hr)) return;
+		// 이벤트 핸들 설정
+        m_pAudioClient->SetEventHandle(hEvent);
+        m_pAudioClient->GetService(__uuidof(IAudioRenderClient), (void**)&m_pRenderClient);
 
         // 재생 시작
         m_pAudioClient->Start();
@@ -235,12 +214,13 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
         // 벡터 메모리 할당
         m_rawTempL.resize(maxFrames * sampleSizeBytes);
         m_rawTempR.resize(maxFrames * sampleSizeBytes);
-
         m_floatTempL.resize(maxFrames);
         m_floatTempR.resize(maxFrames);
-
         m_resampledTempL.resize(maxFrames);
         m_resampledTempR.resize(maxFrames);
+
+        bool isBuffering = true;
+        //size_t safeThreshold = 2048; // stable 4096
 
         while (m_bRunning) {
             DWORD waitResult = WaitForSingleObject(hEvent, 1000);
@@ -248,17 +228,32 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
 
             UINT32 padding;
             if (FAILED(m_pAudioClient->GetCurrentPadding(&padding))) continue;
-
             UINT32 framesNeeded = bufferFrameCount - padding;
             if (framesNeeded == 0) continue;
 
             BYTE* pData;
             if (FAILED(m_pRenderClient->GetBuffer(framesNeeded, &pData))) continue;
 
-            double ratio = m_inputRate / outRate;
-
-            size_t samplesToRead = (size_t)(framesNeeded * ratio) + 2;
+            // 초기 버퍼링
             size_t bytesAvailable = m_pBufferL->GetAvailableRead();
+
+            if (!isBuffering && bytesAvailable < 128) {
+                isBuffering = true;
+            }
+            if (isBuffering) {
+                memset(pData, 0, framesNeeded * pMixFormat->nBlockAlign);
+                m_pRenderClient->ReleaseBuffer(framesNeeded, 0);
+
+                // 충분히 모였으면(safeThreshold 이상) 재생 재개
+                if (bytesAvailable > safeThreshold) {
+                    isBuffering = false;
+                }
+                continue;
+            }
+
+            double ratio = m_inputRate / outRate;
+			// 필요한 입력 샘플 수 계산
+            size_t samplesToRead = (size_t)ceil(framesNeeded * ratio);
             size_t samplesAvailable = bytesAvailable / sampleSizeBytes;
 
             // Underrun
@@ -277,8 +272,18 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
                 ConvertRawToFloat(m_rawTempR.data(), m_floatTempR.data(), samplesToRead);
 
                 // Resample (InRate -> OutRate)
-                size_t generatedL = m_resamplerL.Process(m_floatTempL.data(), samplesToRead, m_resampledTempL.data(), framesNeeded);
-                size_t generatedR = m_resamplerR.Process(m_floatTempR.data(), samplesToRead, m_resampledTempR.data(), framesNeeded);
+                size_t generatedL, generatedR;
+                if (needResample) {
+                    generatedL = m_resamplerL.Process(m_floatTempL.data(), samplesToRead, m_resampledTempL.data(), framesNeeded);
+                    generatedR = m_resamplerR.Process(m_floatTempR.data(), samplesToRead, m_resampledTempR.data(), framesNeeded);
+                }
+                else {
+                    // 비율이 1.0이면 단순 복사
+                    size_t copyCount = (samplesToRead < framesNeeded) ? samplesToRead : framesNeeded;
+                    memcpy(m_resampledTempL.data(), m_floatTempL.data(), copyCount * sizeof(float));
+                    memcpy(m_resampledTempR.data(), m_floatTempR.data(), copyCount * sizeof(float));
+                    generatedL = generatedR = copyCount;
+                }
 
                 // WASAPI에 쓰기
                 float* pOut = (float*)pData;
@@ -293,19 +298,7 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId) {
                 // 부족한 부분은 0(침묵)
                 if (generatedL < framesNeeded) {
                     size_t missing = framesNeeded - generatedL;
-
-					// 마지막 샘플 복사
-                    float lastSampleL = (generatedL > 0) ? pOut[(generatedL - 1) * channels + 0] : 0.0f;
-                    float lastSampleR = (channels > 1 && generatedL > 0) ? pOut[(generatedL - 1) * channels + 1] : 0.0f;
-
-					// 남은 부분 마지막 샘플로 채우기
-                    for (size_t k = 0; k < missing; k++) {
-                        size_t destIdx = generatedL + k;
-                        pOut[destIdx * channels + 0] = lastSampleL;
-                        if (channels > 1) {
-                            pOut[destIdx * channels + 1] = lastSampleR;
-                        }
-                    }
+                    memset(pOut + (generatedL * channels), 0, missing * channels * sizeof(float));
                 }
             }
             else {

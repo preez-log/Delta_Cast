@@ -29,12 +29,12 @@ public:
     // 초기화 및 재생 시작
     bool Start(ByteRingBuffer* pBufferL, ByteRingBuffer* pBufferR,
         const std::wstring& deviceId,
-        ASIOSampleType sampleType, double inputSampleRate);
+        ASIOSampleType sampleType, double inputSampleRate, size_t threshold);
     // 재생 중지
     void Stop();
 
 private:
-    void RenderThreadFunc(std::wstring targetDeviceId);
+    void RenderThreadFunc(std::wstring targetDeviceId, size_t threshold);
     void ConvertRawToFloat(const void* input, float* output, size_t sampleCount);
 
     std::atomic<bool> m_bRunning{ false };

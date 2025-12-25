@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string>
 #include <vector>
+#include <avrt.h>
+#pragma comment(lib, "avrt.lib")
 
 const float INT32_TO_FLOAT = 4.65661287e-10f;  // 1 / 2^31
 const float INT24_TO_FLOAT = 1.19209290e-7f;   // 1 / 2^23
@@ -63,59 +65,67 @@ ASIOError VirtualBackend::Stop() {
 
 void VirtualBackend::VirtualClockLoop() {
 	// 타이머 해상도, 스레드 우선순위 설정
+    DWORD taskIndex = 0;
+    HANDLE hTask = AvSetMmThreadCharacteristics(L"Pro Audio", &taskIndex);
+    if (hTask == NULL) {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+        DebugLog("[VirtualBackend] MMCSS Failed, using Time Critical fallback\n");
+    }
     TimerResolutionSetter timerRes;
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
     // 블록당 시간 계산 (나노초)
-    double secondsPerBlock = (double)m_bufferSize / m_sampleRate;
-    auto blockDuration = std::chrono::duration_cast<PrecisionClock::Duration>(
-        std::chrono::duration<double>(secondsPerBlock)
+    double idealSeconds = (double)m_bufferSize / m_sampleRate;
+    auto idealDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::duration<double>(idealSeconds)
     );
 
     // 기준 시간
-    auto nextTriggerTime = PrecisionClock::Now();
-    m_samplePos = 0;
+    auto wakeUpTime = std::chrono::steady_clock::now();
     long doubleBufferIndex = 0;
 
-    size_t capacity = Config::RING_BUFFER_SIZE;
-    if (m_owner) {
-        capacity = Config::RING_BUFFER_SIZE; // 혹은 m_owner->GetBufferSize() 등
-    }
+    size_t bufferCapacity = Config::RING_BUFFER_SIZE;
 
-    size_t targetFast = (size_t)(capacity * Config::BUFFER_TARGET_LOW);
-    size_t targetSlow = (size_t)(capacity * Config::BUFFER_TARGET_HIGH);
-
+    DebugLog("[VirtualBackend] Simple Loop Started. Block Time: %.3f ms\n", idealSeconds * 1000.0);
     DebugLog("[VirtualBackend] Loop Running... Buffer: %d\n", m_bufferSize);
 
     while (m_running) {
         // 누적 오차 방지
         size_t currentFill = 0;
-		if (m_owner){ currentFill += m_owner->m_loopbackBufferR.GetFillSize(); }
+        if (m_owner) currentFill = m_owner->m_loopbackBufferR.GetFillSize();
 
-        if (currentFill < targetFast) {
-            blockDuration -= std::chrono::microseconds(2);
+        auto currentSleepTime = idealDuration;
+
+        if (currentFill > bufferCapacity * 0.9) {
+            // 오버런 임박 (90% 이상 참) -> 속도를 늦춤
+            currentSleepTime += std::chrono::microseconds(10);
         }
-        else if (currentFill > targetSlow) {
-            blockDuration += std::chrono::microseconds(2);
-		}
+        else if (currentFill < bufferCapacity * 0.1) {
+            // 언더런 임박 (10% 미만 남음) -> 속도를 높임
+            currentSleepTime -= std::chrono::microseconds(10);
+        }
+        wakeUpTime += currentSleepTime;
+        
+        if (wakeUpTime < std::chrono::steady_clock::now()) {
+            wakeUpTime = std::chrono::steady_clock::now();
+        }
 
-        nextTriggerTime += blockDuration;
-        blockDuration = std::chrono::duration_cast<PrecisionClock::Duration>(
-            std::chrono::duration<double>(secondsPerBlock)
-		);
+        PrecisionClock::WaitUntil(wakeUpTime);
 
-        // 버퍼 스위치
-        if (m_owner) {
+        if (m_owner && m_owner->m_bufferInfos) {
+            long numCh = m_owner->m_numChannels;
+			// 채널별로 버퍼 클리어
+            for (long i = 0; i < numCh; i++) {
+                // 버퍼 포인터 가져오기
+                void* pBuf = m_owner->m_bufferInfos[i].buffers[doubleBufferIndex];
+                if (pBuf) memset(pBuf, 0, m_owner->m_bufferSize * sizeof(float));
+            }
             m_owner->TriggerBufferSwitch(doubleBufferIndex);
         }
-
         // 샘플 위치 갱신
         m_samplePos += m_bufferSize;
         doubleBufferIndex = (doubleBufferIndex + 1) % 2;
-
-        // 정밀 대기
-        PrecisionClock::WaitUntil(nextTriggerTime);
     }
+    if (hTask) AvRevertMmThreadCharacteristics(hTask);
 }
 
 ASIOError VirtualBackend::CreateBuffers(ASIOBufferInfo* bufferInfos, long numChannels, long bufferSize, ASIOCallbacks* callbacks) {
@@ -125,11 +135,11 @@ ASIOError VirtualBackend::CreateBuffers(ASIOBufferInfo* bufferInfos, long numCha
         m_buffers.resize(numChannels);
         for (long i = 0; i < numChannels; i++) {
             // 초기화
-            m_buffers[i].assign(bufferSize, 0.0f);
+            m_buffers[i].assign(bufferSize * 2, 0.0f);
 
             // ASIO 더블 버퍼링 포인터 연결
             bufferInfos[i].buffers[0] = m_buffers[i].data();
-            bufferInfos[i].buffers[1] = m_buffers[i].data();
+            bufferInfos[i].buffers[1] = m_buffers[i].data() + bufferSize;
         }
         DebugLog("[VirtualBackend] Buffers Allocated: %d ch, %d frames\n", numChannels, bufferSize);
         return ASE_OK;
@@ -186,7 +196,7 @@ void CDeltaCastDriver::LoadConfiguration() {
     std::wstring configPath = modulePath;
     size_t lastSlash = configPath.find_last_of(L"\\/");
     if (lastSlash != std::wstring::npos) configPath = configPath.substr(0, lastSlash + 1);
-    configPath += L"DeltaCast.ini";
+    configPath += L"Delta_Cast.ini";
 
     // INI 에서 읽어옴
     WCHAR clsidStr[64] = { 0 };
@@ -194,6 +204,7 @@ void CDeltaCastDriver::LoadConfiguration() {
 
     WCHAR wasapiIdBuf[256] = { 0 };
     GetPrivateProfileStringW(L"Settings", L"TargetWasapiID", L"", wasapiIdBuf, 256, configPath.c_str());
+    m_latencyMode = GetPrivateProfileIntW(L"Settings", L"LatencyMode", 1, configPath.c_str());
     m_targetWasapiId = wasapiIdBuf;
 
     // 모드 선택
@@ -239,7 +250,7 @@ ASIOError CDeltaCastDriver::createBuffers(ASIOBufferInfo* bufferInfos, long numC
     m_bufferSize = bufferSize;
 
     // 샘플 레이트 세팅
-    ASIOSampleRate rate = 44100.0;
+    ASIOSampleRate rate = 48000.0;
     m_backendImpl->GetSampleRate(&rate);
     m_sampleRate = rate;
 
@@ -276,7 +287,16 @@ ASIOError CDeltaCastDriver::createBuffers(ASIOBufferInfo* bufferInfos, long numC
 
 ASIOError CDeltaCastDriver::start() {
     if (!m_backendImpl) return ASE_NotPresent;
-    m_renderer.Start(&m_loopbackBufferL, &m_loopbackBufferR, m_targetWasapiId, m_sampleType, m_sampleRate);
+    size_t threshold = 8192;
+    switch (m_latencyMode) {
+    case 0: threshold = 16384; break; // 42ms
+    case 1: threshold = 8192;  break; // 21ms
+    case 2: threshold = 4096;  break; // 10ms
+    case 3: threshold = 2048;  break; // 5ms
+	case 4: threshold = 1024;  break; // 2ms
+    default: threshold = 8192; break;
+    }
+    m_renderer.Start(&m_loopbackBufferL, &m_loopbackBufferR, m_targetWasapiId, m_sampleType, m_sampleRate, threshold);
     return m_backendImpl->Start();
 }
 
@@ -314,45 +334,22 @@ ASIOTime* CDeltaCastDriver::bufferSwitchTimeInfo(ASIOTime* timeInfo, long index,
 }
 
 void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
-    if (!m_bufferInfos || m_outIndexL == -1) return;
-    if (m_lastProcessedBufferIndex == index) return;
+    if (m_outIndexL == -1 || m_lastProcessedBufferIndex == index) return;
     m_lastProcessedBufferIndex = index;
 
-    int sampleSize = GetSampleSize(m_sampleType);
-    if (sampleSize == 0) return;
+    static const size_t frameSize = 4;
+    size_t bytesToCopy = m_bufferSize * frameSize;
 
-	// 복사할 바이트 수
-    size_t bytesToCopy = m_bufferSize * sampleSize;
-	// 링버퍼의 현재 여유 공간 확인
+	// 링버퍼 여유 공간 확인
     size_t available = m_loopbackBufferL.GetAvailableWrite();
-
-    if (m_isVirtualMode) {
-		// Virtual : 대기
-        auto startTime = std::chrono::high_resolution_clock::now();
-        auto limit = Config::VIRTUAL_TIMEOUT;
-        while (available < bytesToCopy) {
-            auto currentTime = std::chrono::high_resolution_clock::now();
-            auto elapsedTime = currentTime - startTime;
-            // 약 20ms 이상 기다려도 안 되면 포기 (Deadlock 방지)
-            if (elapsedTime > limit) {
-                return;
-            }
-            // 0.1ms 정도 짧게 대기
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
-            available = m_loopbackBufferL.GetAvailableWrite();
-        }
-    }
-    else {
-		// Froxy : 드롭
-        if (available < bytesToCopy) {
-            return;
-        }
+    if (available < bytesToCopy) {
+        // 오버런
+        return;
     }
 
     // 원본 데이터 포인터 획득
     void* pRawL = m_bufferInfos[m_outIndexL].buffers[index];
     void* pRawR = (m_outIndexR != -1) ? m_bufferInfos[m_outIndexR].buffers[index] : nullptr;
-    if (!pRawL) return;
 
     // 링버퍼 (-> WASAPI)
     m_loopbackBufferL.Push(pRawL, bytesToCopy);
@@ -394,7 +391,7 @@ ASIOError CDeltaCastDriver::getClockSources(ASIOClockSource* clocks, long* numSo
 }
 // 기타 함수
 void CDeltaCastDriver::getDriverName(char* name) { strcpy_s(name, 32, "Delta_Cast ASIO"); }
-long CDeltaCastDriver::getDriverVersion() { return 0x010200; }
+long CDeltaCastDriver::getDriverVersion() { return 0x010201; }
 void CDeltaCastDriver::getErrorMessage(char* string) {
     if (m_backendImpl) m_backendImpl->GetErrorMessage(string);
     else strcpy_s(string, 32, "No Backend");
