@@ -141,7 +141,6 @@ ASIOError VirtualBackend::CreateBuffers(ASIOBufferInfo* bufferInfos, long numCha
             bufferInfos[i].buffers[0] = m_buffers[i].data();
             bufferInfos[i].buffers[1] = m_buffers[i].data() + bufferSize;
         }
-        DebugLog("[VirtualBackend] Buffers Allocated: %d ch, %d frames\n", numChannels, bufferSize);
         return ASE_OK;
     }
     catch (...) {
@@ -273,27 +272,35 @@ ASIOError CDeltaCastDriver::createBuffers(ASIOBufferInfo* bufferInfos, long numC
                 else if (m_outIndexR == -1) { m_outIndexR = i; break; }
             }
         }
+        if (m_outIndexL == -1) { m_outIndexL = 0; m_outIndexR = 1; }
+        if (m_outIndexR == -1) m_outIndexR = m_outIndexL;
 
         // 채널 타입 확인
         ASIOChannelInfo info = { 0 };
-        info.channel = m_outIndexL;
+        info.channel = bufferInfos[m_outIndexL].channelNum;
         info.isInput = ASIOFalse;
-        if (m_backendImpl->GetChannelInfo(&info) == ASE_OK) {
+        ASIOError infoResult = m_backendImpl->GetChannelInfo(&info);
+        if (infoResult == ASE_OK) {
             m_sampleType = info.type;
+        }
+        else {
+			// 기본값으로 Int32 사용
+            m_sampleType = ASIOSTInt32LSB;
         }
     }
     return result;
 }
 
 ASIOError CDeltaCastDriver::start() {
-    if (!m_backendImpl) return ASE_NotPresent;
+    if (!m_backendImpl) {
+        return ASE_NotPresent;
+    }
     size_t threshold = 8192;
     switch (m_latencyMode) {
     case 0: threshold = 16384; break; // 42ms
     case 1: threshold = 8192;  break; // 21ms
     case 2: threshold = 4096;  break; // 10ms
     case 3: threshold = 2048;  break; // 5ms
-	case 4: threshold = 1024;  break; // 2ms
     default: threshold = 8192; break;
     }
     m_renderer.Start(&m_loopbackBufferL, &m_loopbackBufferR, m_targetWasapiId, m_sampleType, m_sampleRate, threshold);
@@ -325,12 +332,13 @@ void CDeltaCastDriver::bufferSwitch(long index, ASIOBool directProcess) {
     if (g_pThis) g_pThis->TriggerBufferSwitch(index);
 }
 ASIOTime* CDeltaCastDriver::bufferSwitchTimeInfo(ASIOTime* timeInfo, long index, ASIOBool processNow) {
+    ASIOTime* result = nullptr;
     if (g_pThis) {
         if (g_pThis->m_hostCallbacks.bufferSwitchTimeInfo)
-            return g_pThis->m_hostCallbacks.bufferSwitchTimeInfo(timeInfo, index, processNow);
+            result = g_pThis->m_hostCallbacks.bufferSwitchTimeInfo(timeInfo, index, processNow);
         g_pThis->CopyAudioToRingBuffer(index);
     }
-    return nullptr;
+    return result;
 }
 
 void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {

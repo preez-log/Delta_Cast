@@ -197,7 +197,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"8192 samples (21ms)");
             SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"4096 samples (10ms)");
             SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"2048 samples (5ms)");
-            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"1024 samples (2.5ms)");
 
             // 기본값: 10ms
             SendMessage(hComboLatency, CB_SETCURSEL, 2, 0);

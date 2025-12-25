@@ -1,7 +1,9 @@
 ﻿#pragma once
+#define NOMINMAX
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
+#include <initguid.h>
 #ifndef MY_ASIO
 #define MY_ASIO
 #include <iasiodrv.h>
