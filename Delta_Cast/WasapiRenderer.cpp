@@ -413,7 +413,7 @@ void CWasapiRenderer::RenderThreadFunc(std::wstring targetDeviceId, size_t safeT
         SafeRelease(&m_pEnumerator);
         CoUninitialize();
     }
-    catch (std::exception& e) {
+    catch (std::exception&) {
         if (m_pAudioClient) m_pAudioClient->Stop();
     }
     catch (...) {

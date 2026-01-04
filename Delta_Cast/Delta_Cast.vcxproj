@@ -98,6 +98,10 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <TargetName>$(ProjectName)_x86</TargetName>
+    <OutDir>$(SolutionDir)x64\$(Configuration)\</OutDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -127,13 +131,15 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>C:\Users\lsmin\Desktop\project\ASIOSDK\common</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ModuleDefinitionFile>DeltaCast.def</ModuleDefinitionFile>
     </Link>
     <PostBuildEvent>
-      <Command>signtool sign /f "$(ProjectDir)StudioDeltaWorks.pfx" /p preezadsf1020 /tr http://timestamp.digicert.com /td sha256 /fd sha256 "$(TargetPath)"</Command>
+      <Command>signtool sign /f "$(SolutionDir)..\StudioDeltaWorks.pfx" /p preezadsf1020 /tr http://timestamp.digicert.com /td sha256 /fd sha256 "$(TargetPath)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Secure|Win32'">

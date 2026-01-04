@@ -132,36 +132,64 @@ bool SaveConfig(const std::wstring& asioClsid, const std::wstring& wasapiId, int
 void RunDriverCommand(HWND hWnd, bool install) {
     WCHAR path[MAX_PATH];
     GetModuleFileName(NULL, path, MAX_PATH);
-    std::wstring dllPath = path;
+    std::wstring basePath = path;
     // exe가 있는 폴더에서 dll 찾기
-    dllPath = dllPath.substr(0, dllPath.find_last_of(L"\\/") + 1) + L"Delta_Cast.dll";
+    basePath = basePath.substr(0, basePath.find_last_of(L"\\/") + 1);
 
-    // 파일 존재 확인
-    if (GetFileAttributes(dllPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        MessageBox(hWnd, L"Delta_Cast.dll not found!", L"Error", MB_ICONERROR);
+    struct DriverTarget {
+        std::wstring filename;
+        bool is32bit;
+    };
+    std::vector<DriverTarget> targets = {
+        { L"Delta_Cast.dll", false },      // 64비트 (기본)
+        { L"Delta_Cast_x86.dll", true }    // 32비트 (LR2용)
+    };
+
+    bool anyFound = false;
+    std::wstring msg = L"";
+
+    for (const auto& target : targets) {
+        std::wstring dllPath = basePath + target.filename;
+
+        // 파일 존재 확인
+        if (GetFileAttributes(dllPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            anyFound = true;
+
+            // 실행할 regsvr32 경로
+            // 64비트 OS에서 32비트 DLL은 SysWOW64\regsvr32.exe
+            std::wstring regsvrCmd = L"regsvr32.exe"; // 기본 (System32)
+            if (target.is32bit) {
+                // 현재 프로세스가 64비트라면, 32비트 regsvr32는 SysWOW64에 있음
+                WCHAR winDir[MAX_PATH];
+                GetWindowsDirectory(winDir, MAX_PATH);
+                regsvrCmd = std::wstring(winDir) + L"\\SysWOW64\\regsvr32.exe";
+            }
+
+            // regsvr32 명령어 실행
+            std::wstring params = install ? L"/s \"" : L"/u /s \"";
+            //std::wstring params = install ? L" \"" : L"/u \"";
+            params += dllPath + L"\"";
+
+            // 관리자 권한으로 실행
+            HINSTANCE hRes = ShellExecute(NULL, L"open", regsvrCmd.c_str(), params.c_str(), NULL, SW_HIDE);
+
+            if ((intptr_t)hRes <= 32) {
+                msg += target.filename + L": Failed\n";
+            }
+        }
+    }
+    if (!anyFound) {
+        MessageBox(hWnd, L"Delta_Cast.dll or Delta_Cast_x86.dll not found!", L"Error", MB_ICONERROR);
         return;
     }
 
-    // regsvr32 명령어 실행
-    std::wstring params = install ? L"/s \"" : L"/u /s \"";
-    params += dllPath + L"\"";
-
-    // ShellExecute 실행
-    HINSTANCE hRes = ShellExecute(NULL, L"open", L"regsvr32.exe", params.c_str(), NULL, SW_HIDE);
-
-    // 반환값이 32보다 크면 성공
-    if ((intptr_t)hRes > 32) {
-        if (install) {
-            SetWindowText(hStatus, L"Status: Driver Registered Successfully!");
-            MessageBox(hWnd, L"Driver Initialized & Registered!\nSelect 'Delta_Cast ASIO' in your game.", L"Success", MB_ICONINFORMATION);
-        }
-        else {
-            SetWindowText(hStatus, L"Status: Driver Unregistered.");
-            MessageBox(hWnd, L"Driver Removed from System.", L"Info", MB_ICONINFORMATION);
-        }
+    if (install) {
+        SetWindowText(hStatus, L"Status: Drivers Registered!");
+        MessageBox(hWnd, L"Driver Setup Complete!\n(x86, x64 both)", L"Success", MB_ICONINFORMATION);
     }
     else {
-        MessageBox(hWnd, L"Failed to execute regsvr32.", L"Error", MB_ICONERROR);
+        SetWindowText(hStatus, L"Status: Drivers Unregistered.");
+        MessageBox(hWnd, L"Drivers Removed.", L"Info", MB_ICONINFORMATION);
     }
 }
 
@@ -197,6 +225,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"8192 samples (21ms)");
             SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"4096 samples (10ms)");
             SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"2048 samples (5ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"1024 samples (2.6ms)");
 
             // 기본값: 10ms
             SendMessage(hComboLatency, CB_SETCURSEL, 2, 0);
@@ -285,7 +314,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
     RegisterClassExW(&wcex);
 
     // 윈도우 생성
-    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config V1.2.1", 
+    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config V1.2.3", 
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, 
         0, 400, 350, NULL, NULL, hInstance, NULL);
     ShowWindow(hWnd, nCmdShow);
