@@ -1,5 +1,4 @@
-﻿LIBRARY Delta_Cast
-EXPORTS
+﻿EXPORTS
     DllMain private
     DllGetClassObject private
     DllCanUnloadNow private

@@ -301,6 +301,7 @@ ASIOError CDeltaCastDriver::start() {
     case 1: threshold = 8192;  break; // 21ms
     case 2: threshold = 4096;  break; // 10ms
     case 3: threshold = 2048;  break; // 5ms
+	case 4: threshold = 1024;  break; // 2ms
     default: threshold = 8192; break;
     }
     m_renderer.Start(&m_loopbackBufferL, &m_loopbackBufferR, m_targetWasapiId, m_sampleType, m_sampleRate, threshold);
