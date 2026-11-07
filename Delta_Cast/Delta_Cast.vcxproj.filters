@@ -54,6 +54,13 @@
     <ClInclude Include="DriverBackend.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="Logging.h">
+      <Filter>Util</Filter>
+    </ClInclude>
+    <ClInclude Include="ScopeGuards.h">
+      <Filter>Util</Filter>
+    </ClInclude>
+    <ClInclude Include="Version.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="DeltaCast.def" />

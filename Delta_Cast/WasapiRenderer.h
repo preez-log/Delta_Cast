@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <wrl/client.h>
 #include "RingBuffer.h"
 #include "Resampler.h"
 
@@ -37,6 +38,12 @@ public:
 
 private:
     void RenderThreadFunc(std::wstring targetDeviceId, size_t threshold);
+    HRESULT InitSharedStream(IAudioClient* pAudioClient,
+        WAVEFORMATEX* pMixFormat, HANDLE hEvent,
+        Microsoft::WRL::ComPtr<IAudioRenderClient>& outRenderClient,
+        bool& outUsedLowLatency,
+        UINT32& outPeriodFrames);
+    bool m_forceLegacyInit = false;
     void ConvertRawToFloat(const void* input, float* output, size_t sampleCount);
 
     std::atomic<bool> m_bRunning{ false };
@@ -55,10 +62,4 @@ private:
     std::vector<uint8_t> m_rawTempL, m_rawTempR;
     std::vector<float>   m_floatTempL, m_floatTempR;
     std::vector<float>   m_resampledTempL, m_resampledTempR;
-
-    // WASAPI 인터페이스
-    IMMDeviceEnumerator* m_pEnumerator = nullptr;
-    IMMDevice* m_pDevice = nullptr;
-    IAudioClient* m_pAudioClient = nullptr;
-    IAudioRenderClient* m_pRenderClient = nullptr;
 };

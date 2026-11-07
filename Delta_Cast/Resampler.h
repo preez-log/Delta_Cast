@@ -97,7 +97,8 @@ public:
         }
 
         // 남은 인덱스 처리
-        m_readIndex -= inCount;
+        m_readIndex -= (double)inCount;
+
 		// 히스토리 업데이트
         UpdateHistory(input, inCount);
 

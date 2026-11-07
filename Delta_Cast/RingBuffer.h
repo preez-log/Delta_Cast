@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <atomic>
 #include <vector>
+#include <cassert>
 
 // ---------------------------------------------------------------------------
 // Lock-Free Ring Buffer
@@ -9,6 +10,8 @@ class ByteRingBuffer {
 public:
 	explicit ByteRingBuffer(size_t sizeBytes = 131072) // 기본 크기 128KB
         : m_size(sizeBytes), m_mask(sizeBytes - 1), m_buffer(sizeBytes) {
+        assert(sizeBytes != 0 && (sizeBytes & (sizeBytes - 1)) == 0
+            && "ByteRingBuffer size must be a power of two");
         // 읽기/쓰기 포인터 초기화
         m_writeIndex.store(0, std::memory_order_relaxed);
         m_readIndex.store(0, std::memory_order_relaxed);
@@ -90,11 +93,16 @@ public:
         return w - r;
     }
 
+    // 리셋
+    void Reset() {
+        m_readIndex.store(m_writeIndex.load(std::memory_order_acquire),
+            std::memory_order_release);
+    }
+
 private:
     std::vector<uint8_t> m_buffer;
     size_t m_size;
     size_t m_mask;
     alignas(64) std::atomic<size_t> m_writeIndex;
     alignas(64) std::atomic<size_t> m_readIndex;
-    char _padding[64];
 };

@@ -7,6 +7,7 @@
 #include <functiondiscoverykeys_devpkey.h>
 #include <shellapi.h>
 #include "Resource.h"
+#include "../Delta_Cast/Version.h"
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -142,7 +143,7 @@ void RunDriverCommand(HWND hWnd, bool install) {
     };
     std::vector<DriverTarget> targets = {
         { L"Delta_Cast.dll", false },      // 64비트 (기본)
-        { L"Delta_Cast_x86.dll", true }    // 32비트 (LR2용)
+        { L"Delta_Cast_x86.dll", true }    // 32비트
     };
 
     bool anyFound = false;
@@ -221,11 +222,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             SendMessage(hComboLatency, WM_SETFONT, (WPARAM)hFont, 0);
 
             // 목록 추가 (인덱스 0~3)
-            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"16384 samples (42ms)");
-            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"8192 samples (21ms)");
-            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"4096 samples (10ms)");
-            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"2048 samples (5ms)");
-            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"1024 samples (2.6ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"16384bytes (85ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"8192bytes (43ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"4096bytes (21ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"2048bytes (11ms)");
+            SendMessage(hComboLatency, CB_ADDSTRING, 0, (LPARAM)L"1024bytes (5ms)");
 
             // 기본값: 10ms
             SendMessage(hComboLatency, CB_SETCURSEL, 2, 0);
@@ -273,7 +274,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             int idxWasapi = (int)SendMessage(hComboWasapi, CB_GETCURSEL, 0, 0);
             int idxLatency = (int)SendMessage(hComboLatency, CB_GETCURSEL, 0, 0);
 
-            if (idxAsio >= 0 && idxAsio < g_asioList.size() && idxWasapi >= 0 && idxWasapi < g_wasapiList.size()) {
+            if (idxAsio >= 0 && (size_t)idxAsio < g_asioList.size() && idxWasapi >= 0 && (size_t)idxWasapi < g_wasapiList.size()) {
                 if (SaveConfig(g_asioList[idxAsio].id, g_wasapiList[idxWasapi].id, idxLatency)) {
                     SetWindowText(hStatus, L"Status: Configuration Saved. Press 'Init'!");
                     // 저장 성공 > Init 버튼 활성화
@@ -314,7 +315,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
     RegisterClassExW(&wcex);
 
     // 윈도우 생성
-    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config V1.2.3", 
+    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config" DC_VER_STRING,
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, 
         0, 400, 350, NULL, NULL, hInstance, NULL);
     ShowWindow(hWnd, nCmdShow);

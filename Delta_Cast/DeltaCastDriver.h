@@ -7,6 +7,7 @@
 #include <atomic>
 #include <memory>
 #include <chrono>
+#include <vector>
 
 #include "RingBuffer.h"
 #include "DriverBackend.h"
@@ -14,15 +15,9 @@
 #include "Resampler.h"
 
 namespace Config {
-	// 링버퍼 크기: 64KB 
+	// 링버퍼 크기: 128KB 
     const size_t RING_BUFFER_SIZE = 131072;
 
-    // 가상 모드 타임아웃 (20ms)
-    const auto VIRTUAL_TIMEOUT = std::chrono::milliseconds(20);
-
-    // 클럭 제어 범위 (35% ~ 65%)
-    const double BUFFER_TARGET_LOW = 0.35;
-    const double BUFFER_TARGET_HIGH = 0.65;
 }
 
 class CDeltaCastDriver : public IASIO {
@@ -58,7 +53,7 @@ public:
     virtual ULONG STDMETHODCALLTYPE Release() override;
 
     // --- 전역 접근 포인터 ---
-    static CDeltaCastDriver* g_pThis;
+    static std::atomic<CDeltaCastDriver*> g_pThis;
 
 	// --- 송출 버퍼 ---
 	ByteRingBuffer m_loopbackBufferL{ Config::RING_BUFFER_SIZE };
@@ -82,11 +77,12 @@ private:
 
     int GetSampleSize(ASIOSampleType type);
 
+    std::vector<ASIOBufferInfo> m_bufferInfos;
     ASIOCallbacks m_hostCallbacks;
     ASIOCallbacks m_myCallbacks;
-    ASIOBufferInfo* m_bufferInfos = nullptr;
     ASIOSampleType m_sampleType = ASIOSTFloat32LSB;
     ASIOSampleRate m_sampleRate = 48000.0;
+    
     long m_numChannels = 0;
     long m_bufferSize = 0;
     long m_outIndexL = -1;
@@ -102,6 +98,12 @@ private:
     static void sampleRateChanged(ASIOSampleRate sRate);
     static long asioMessage(long selector, long value, void* message, double* opt);
 
+    // 활성 스트림 해제
+    void ReleaseActiveStream();
+
+    // 송출 버퍼 임계값
+    size_t GetLoopbackThreshold() const;
+
     // COM 참조 카운트
     std::atomic<ULONG> m_refCount{ 1 };
 
@@ -112,4 +114,5 @@ private:
 
 	// 레이턴시 모드 (기본: 1)
     int m_latencyMode = 1;
+
 };
