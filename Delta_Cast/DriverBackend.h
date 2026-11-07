@@ -9,8 +9,6 @@
 #include <atomic>
 #include <string>
 
-#include "timer.h"
-
 class CDeltaCastDriver;
 
 // 드라이버 동작
@@ -40,6 +38,7 @@ public:
     // --- 버퍼 관리 ---
     virtual ASIOError CreateBuffers(ASIOBufferInfo* bufferInfos, long numChannels, long bufferSize, ASIOCallbacks* callbacks) = 0;
     virtual ASIOError DisposeBuffers() = 0;
+    virtual void SetLoopbackTarget(size_t bytes) { (void)bytes; }
 
     // 기타
     virtual ASIOError ControlPanel() { return ASE_NotPresent; }
@@ -71,6 +70,9 @@ public:
     }
     ASIOError SetSampleRate(ASIOSampleRate sampleRate) override {
         m_sampleRate = sampleRate; return ASE_OK;
+    }
+    void SetLoopbackTarget(size_t bytes) override {
+        m_targetFill = bytes; 
     }
 
     ASIOError GetChannels(long* in, long* out) override {
@@ -118,6 +120,7 @@ private:
     CDeltaCastDriver* m_owner = nullptr;
     double m_sampleRate = 48000.0;
     long m_bufferSize = 0;
+    size_t m_targetFill = 8192;
 
     // 가상 자원
     std::vector<std::vector<float>> m_buffers;

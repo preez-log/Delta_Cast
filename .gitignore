@@ -37,6 +37,7 @@ build/
 *.dll
 *.lib
 *.exp
+*.pfx
 Thumbs.db
 Desktop.ini
 
