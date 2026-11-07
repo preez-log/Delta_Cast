@@ -458,7 +458,8 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
 
     // 링버퍼 여유 공간 확인
     size_t available = m_loopbackBufferL.GetAvailableWrite();
-    if (available < bytesToCopy) {
+    if (m_loopbackBufferL.GetAvailableWrite() < bytesToCopy ||
+        m_loopbackBufferR.GetAvailableWrite() < bytesToCopy) {
         // 오버런
         return;
     }

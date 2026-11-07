@@ -93,6 +93,18 @@ public:
         return w - r;
     }
 
+    // 읽지 않고 버림
+    size_t Discard(size_t numBytes) {
+        size_t writeIdx = m_writeIndex.load(std::memory_order_acquire);
+        size_t readIdx = m_readIndex.load(std::memory_order_relaxed);
+        size_t availableData = writeIdx - readIdx;
+        size_t toDrop = (numBytes > availableData) ? availableData : numBytes;
+        m_readIndex.store(readIdx + toDrop, std::memory_order_release);
+
+        // 실제로 버린 바이트 수 반환
+        return toDrop;
+    }
+
     // 리셋
     void Reset() {
         m_readIndex.store(m_writeIndex.load(std::memory_order_acquire),
