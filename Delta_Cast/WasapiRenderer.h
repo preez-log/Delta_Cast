@@ -37,7 +37,15 @@ public:
     void Stop();
 
 private:
+    // 세션 종료 사유
+    enum class SessionResult { Stopped, Retry };
+
     void RenderThreadFunc(std::wstring targetDeviceId, size_t threshold);
+    SessionResult RunSession(IMMDeviceEnumerator* pEnumerator,
+        const std::wstring& targetDeviceId, size_t threshold,
+        bool quiet, bool reconnecting, bool& outStreamed);
+    bool WaitWhileRunning(DWORD milliseconds);
+    void DiscardBacklog();
     HRESULT InitSharedStream(IAudioClient* pAudioClient,
         WAVEFORMATEX* pMixFormat, HANDLE hEvent,
         Microsoft::WRL::ComPtr<IAudioRenderClient>& outRenderClient,
