@@ -354,7 +354,7 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
     m_resamplerL.Setup(m_inputRate, outRate);
     m_resamplerR.Setup(m_inputRate, outRate);
 
-    bool needResample = (std::abs(m_inputRate - outRate) > 1.0);
+    bool needResample = (std::abs(m_inputRate / outRate - 1.0) >= 0.0001);
 
     // 이벤트 핸들
     HandleGuard event(CreateEvent(nullptr, FALSE, FALSE, nullptr));
@@ -478,9 +478,15 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
             continue;
         }
 
+        // 리샘플링 필요 프레임 계산
         double ratio = m_inputRate / outRate;
-        // 필요한 입력 샘플 수 계산
-        size_t samplesToRead = (size_t)ceil(framesNeeded * ratio);
+        size_t samplesToRead = framesNeeded;
+        if (needResample) {
+            // 출력 framesNeeded 마지막 보간 위치 index의+1까지
+            const double lastPos = m_resamplerL.GetReadIndex() + (double)(framesNeeded - 1) * ratio;
+            const long need = (long)floor(lastPos) + 2;
+            samplesToRead = (need > 0) ? (size_t)need : 0;
+        }
         size_t samplesAvailable = bytesAvailable / sampleSizeBytes;
 
         // Underrun
@@ -551,8 +557,8 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
                     sampleR = std::clamp(sampleR, -1.0f, 1.0f);
 
                     // Float -> Int32
-                    pInt32[i * channels + 0] = (int32_t)(sampleL * 2147483647.0f);
-                    if (channels > 1) pInt32[i * channels + 1] = (int32_t)(sampleR * 2147483647.0f);
+                    pInt32[i * channels + 0] = (int32_t)(sampleL * 2147483647.0);
+                    if (channels > 1) pInt32[i * channels + 1] = (int32_t)(sampleR * 2147483647.0);
                 }
             }
             // [16-bit Int]

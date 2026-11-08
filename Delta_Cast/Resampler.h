@@ -3,7 +3,6 @@
 #include <cmath>
 #include <algorithm>
 
-const float HEADROOM_GAIN = 0.98f;
 const float CLIP_LIMIT = 1.5f;
 
 class Resampler {
@@ -84,8 +83,6 @@ public:
 
             // 3차 보간 계산
             float sample = CubicInterp(p0, p1, p2, p3, frac);
-			// 약간의 헤드룸 적용
-            sample *= HEADROOM_GAIN;
 
             // 클리핑 방지
             if (sample > CLIP_LIMIT) sample = CLIP_LIMIT;

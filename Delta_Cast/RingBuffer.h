@@ -112,9 +112,9 @@ public:
     }
 
 private:
-    std::vector<uint8_t> m_buffer;
     size_t m_size;
     size_t m_mask;
+    std::vector<uint8_t> m_buffer;
     alignas(64) std::atomic<size_t> m_writeIndex;
     alignas(64) std::atomic<size_t> m_readIndex;
 };

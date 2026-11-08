@@ -363,7 +363,6 @@ ASIOError CDeltaCastDriver::start() {
     const size_t threshold = GetLoopbackThreshold();
 
     // 가상 클럭 렌더러 버퍼 임계값을 기준으로 버퍼 채움 유지
-    m_backendImpl->SetLoopbackTarget(threshold);
     const int sampleBytes = GetSampleSize(m_sampleType);
 
     // [임시] 가상 클럭 목표 하한: ASIO 블록 + WASAPI 공유 모드 기본 주기(10ms) 분량
@@ -457,7 +456,6 @@ void CDeltaCastDriver::CopyAudioToRingBuffer(long index) {
     size_t bytesToCopy = m_bufferSize * frameSize;
 
     // 링버퍼 여유 공간 확인
-    size_t available = m_loopbackBufferL.GetAvailableWrite();
     if (m_loopbackBufferL.GetAvailableWrite() < bytesToCopy ||
         m_loopbackBufferR.GetAvailableWrite() < bytesToCopy) {
         // 오버런
