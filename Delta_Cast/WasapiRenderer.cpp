@@ -18,8 +18,9 @@ const float INT16_TO_FLOAT = 3.05175781e-5f;
 CWasapiRenderer::CWasapiRenderer() {}
 CWasapiRenderer::~CWasapiRenderer() { Stop(); }
 
-bool CWasapiRenderer::Start(ByteRingBuffer* pBufferL, ByteRingBuffer* pBufferR,
-    const std::wstring& deviceId, ASIOSampleType sampleType, double inputSampleRate, size_t threshold)
+bool CWasapiRenderer::Start(ByteRingBuffer* pBufferL, ByteRingBuffer* pBufferR, const std::wstring& deviceId, 
+                            ASIOSampleType sampleType, double inputSampleRate, size_t threshold,
+                            size_t asioBlockFrames, bool driftCorrection)
 {
     if (m_bRunning) return true;
 
@@ -27,6 +28,8 @@ bool CWasapiRenderer::Start(ByteRingBuffer* pBufferL, ByteRingBuffer* pBufferR,
     m_pBufferR = pBufferR;
     m_sampleType = sampleType;
     m_inputRate = inputSampleRate;
+    m_asioBlockFrames = asioBlockFrames;
+    m_driftEnabled = driftCorrection;
 
     m_bRunning = true;
     m_renderThread = std::thread(&CWasapiRenderer::RenderThreadFunc, this, deviceId, threshold);
@@ -354,7 +357,8 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
     m_resamplerL.Setup(m_inputRate, outRate);
     m_resamplerR.Setup(m_inputRate, outRate);
 
-    bool needResample = (std::abs(m_inputRate / outRate - 1.0) >= 0.0001);
+    const double nominalRatio = m_inputRate / outRate;
+    bool needResample = m_driftEnabled || (std::abs(nominalRatio - 1.0) >= 0.0001);
 
     // 이벤트 핸들
     HandleGuard event(CreateEvent(nullptr, FALSE, FALSE, nullptr));
@@ -368,12 +372,15 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
     hr = InitSharedStream(pAudioClient.Get(), pMixFormat, hEvent, pRenderClient, usedLowLatency, periodFrames);
     if (FAILED(hr)) return fail("InitSharedStream 실패", hr);
 
-    LogInfo("WASAPI: %s | %u Hz %u ch %d-bit %s | %s | resample %s",
+    LogInfo("WASAPI: %s | %u Hz %u ch %d-bit %s | %s | resample %s | drift correction %s",
         ToUtf8(deviceName).c_str(),
         pMixFormat->nSamplesPerSec, pMixFormat->nChannels, bitDepth,
         isFloat ? "float" : "int",
         usedLowLatency ? "low-latency (IAudioClient3)" : "standard (v1)",
-        needResample ? "ON" : "OFF");
+        needResample ? "ON" : "OFF",
+        m_driftEnabled ? "ON" : "OFF");
+    if (needResample) LogInfo("Resampler: %d taps (%.2f ms)",
+        m_resamplerL.GetTaps(), m_resamplerL.GetLookahead() * 1000.0 / m_inputRate);
 
     // 샘플 크기
     int sampleSizeBytes = 4;
@@ -381,6 +388,15 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
     case ASIOSTInt16LSB: sampleSizeBytes = 2; break;
     case ASIOSTInt24LSB: sampleSizeBytes = 3; break;
     case ASIOSTFloat64LSB: sampleSizeBytes = 8; break;
+    }
+
+    // 드리프트 제어 목표: 지연 모드 값 (팝 직후 링버퍼 채움량 기준)
+    if (m_driftEnabled) {
+        const double thresholdFrames = (double)safeThreshold / sampleSizeBytes;
+        const double minTargetFrames = 2.0 * (double)m_asioBlockFrames + 0.002 * m_inputRate;
+        const double targetFrames = (std::max)(thresholdFrames, minTargetFrames);
+        m_drift.Setup(m_inputRate, targetFrames);
+        LogInfo("Drift target: %.0f frames (%.1f ms)", targetFrames, targetFrames * 1000.0 / m_inputRate);
     }
 
     // 버퍼 프레임 수 확인
@@ -416,7 +432,8 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
     m_floatTempR.resize(maxFrames);
     m_resampledTempL.resize(maxFrames);
     m_resampledTempR.resize(maxFrames);
-
+    m_resamplerL.Reserve(maxFrames);
+    m_resamplerR.Reserve(maxFrames);
     // 재생 시작
     hr = pAudioClient->Start();
     if (FAILED(hr)) return fail("IAudioClient Start 실패", hr);
@@ -433,6 +450,11 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
     if (reconnecting) LogInfo("송출 장치 재연결 성공: %s", ToUtf8(deviceName).c_str());
 
     bool isBuffering = true;
+
+    // 드리프트 진단 로그용
+    constexpr double kDriftLogEverySec = 60.0;
+    double driftLogElapsedSec = 0.0;
+    unsigned driftResyncCount = 0;
 
     while (m_bRunning) {
         DWORD waitResult = WaitForSingleObject(hEvent, 200);
@@ -474,17 +496,23 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
             // 재생
             if (bytesAvailable > safeThreshold) {
                 isBuffering = false;
+                if (m_driftEnabled) m_drift.Reset();
             }
             continue;
         }
 
         // 리샘플링 필요 프레임 계산
-        double ratio = m_inputRate / outRate;
+        const double ratio = m_driftEnabled
+            ? nominalRatio * (1.0 + m_drift.GetCorrection())
+            : nominalRatio;
         size_t samplesToRead = framesNeeded;
+
         if (needResample) {
-            // 출력 framesNeeded 마지막 보간 위치 index의+1까지
+            m_resamplerL.SetRatio(ratio);
+            m_resamplerR.SetRatio(ratio);
+            // 출력 framesNeeded 마지막 보간 위치 index의+2까지(P3)
             const double lastPos = m_resamplerL.GetReadIndex() + (double)(framesNeeded - 1) * ratio;
-            const long need = (long)floor(lastPos) + 2;
+            const long need = (long)floor(lastPos) + 1 + m_resamplerL.GetLookahead();
             samplesToRead = (need > 0) ? (size_t)need : 0;
         }
         size_t samplesAvailable = bytesAvailable / sampleSizeBytes;
@@ -498,7 +526,7 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
             samplesToRead = maxFrames;
         }
 
-        if (samplesToRead > 0) {
+        if (samplesToRead > 0 || needResample) {
             // Pop (Byte 단위) - L/R 모두 같은 양이 나와야 함
             size_t bytesRead = samplesToRead * sampleSizeBytes;
             size_t gotL = m_pBufferL->Pop(m_rawTempL.data(), bytesRead);
@@ -608,6 +636,38 @@ CWasapiRenderer::SessionResult CWasapiRenderer::RunSession(IMMDeviceEnumerator* 
         // 버퍼 해제
         hr = pRenderClient->ReleaseBuffer(framesNeeded, 0);
         if (FAILED(hr)) return fail("ReleaseBuffer 실패", hr);
+
+        // 드리프트 제어: 팝 직후 채움량으로 다음 블록의 비율 결정
+        if (m_driftEnabled) {
+            const double dtSec = (double)framesNeeded / outRate;
+            size_t fillBytes = (std::min)(m_pBufferL->GetAvailableRead(), m_pBufferR->GetAvailableRead());
+            double fillFrames = (double)(fillBytes / (size_t)sampleSizeBytes);
+
+            // 렌더 스레드 정지 등으로 크게 밀렸으면 초과분을 한 번에 버리고 목표로 복귀
+            const size_t excessFrames = (size_t)m_drift.ExcessFrames(fillFrames);
+            if (excessFrames > 0) {
+                const size_t dropBytes = excessFrames * (size_t)sampleSizeBytes;
+                m_pBufferL->Discard(dropBytes);
+                m_pBufferR->Discard(dropBytes);
+                fillFrames -= (double)excessFrames;
+                m_drift.Reset();
+                ++driftResyncCount;
+                LogInfo("Drift resync: %.1f ms 버림", excessFrames * 1000.0 / m_inputRate);
+            }
+
+            m_drift.Update(fillFrames, dtSec);
+
+            driftLogElapsedSec += dtSec;
+            if (driftLogElapsedSec >= kDriftLogEverySec) {
+                driftLogElapsedSec = 0.0;
+                LogInfo("Drift: %+.1f ppm (learned %+.1f) | ring %.1f ms (target %.1f ms) | resync %u",
+                    m_drift.GetCorrection() * 1e6,
+                    m_drift.GetLearnedDrift() * 1e6,
+                    m_drift.GetAverageFill() * 1000.0 / m_inputRate,
+                    m_drift.GetTarget() * 1000.0 / m_inputRate,
+                    driftResyncCount);
+            }
+        }
     }
 
     return SessionResult::Stopped;

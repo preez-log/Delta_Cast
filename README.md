@@ -34,10 +34,13 @@ Delta_Cast는 게임과 실제 ASIO 드라이버 사이에 들어가는 프록�
 * **락-프리 구조**
     - 콜백과 송출 스레드 사이는 락-프리 링 버퍼로 연결됩니다.
     - 송출 쪽이 느려져도 게임 오디오 경로는 영향을 받지 않습니다.
-* **저지연 송출 (v1.3.0~)**
+* **저지연 송출 (v1.3.0+)**
     - Windows 10 이상에서 WASAPI 저지연 공유 모드(`IAudioClient3`)를 자동으로 사용합니다.
     - 지원하지 않는 장치는 일반 공유 모드로 동작합니다.
     - 송출 장치의 샘플레이트가 게임과 다르면 내부 리샘플러로 변환합니다.
+- **클럭 드리프트 보정 (v1.3.2+)** 
+	- 장시간 방송에서도 송출 지연이 늘어나거나 끊기지 않습니다. 
+	- 기본으로 켜져 있습니다. 끄려면 `Delta_Cast.ini`의 `[Settings]`에 `DriftCorrection=0`을 추가하세요.
 * **다양한 포맷 지원**
     - ASIO 샘플 포맷: Int16 / Int24 / Int32 / Float32 / Float64
     - 64비트(`Delta_Cast.dll`)와 32비트(`Delta_Cast_x86.dll`) 게임 모두 지원
@@ -70,6 +73,11 @@ Delta_Cast는 게임과 실제 ASIO 드라이버 사이에 들어가는 프록�
 
 송출 소리가 끊기면 한 단계씩 큰 값으로 올려 보세요. 고정된 지연은 OBS의 오디오 싱크 오프셋으로 맞출 수 있습니다.
 
+> **가상 케이블 설정 팁**
+> VB-CABLE을 쓴다면 Windows 소리 설정에서 `CABLE Input`(재생)과 `CABLE Output`(녹음)의 형식을 모두 **48000 Hz**로 두세요.
+> 다른 값으로 바꾸면 케이블 내부에서 샘플레이트 변환이 일어나 송출 소리의 고음역이 깎일 수 있습니다.
+> 게임의 ASIO 샘플레이트가 48kHz가 아니어도 케이블은 48kHz로 두면 됩니다. Delta_Cast가 자동으로 변환합니다.
+
 ## 사용 방법
 
 1. 리듬 게임을 실행합니다.
@@ -78,7 +86,7 @@ Delta_Cast는 게임과 실제 ASIO 드라이버 사이에 들어가는 프록�
 
 ## 업데이트 방법
 
-1. 게임을 종료합니다.
+1. 게임을 종료합니다. (실행 중인 게임은 종료 전 까지 이전 버전을 계속 사용합니다)
 2. 기존 파일을 새 버전으로 덮어씁니다.
 3. 설치 위치가 바뀌지 않았다면 다시 등록할 필요는 없습니다. 설정은 그대로 유지됩니다.
 
@@ -87,18 +95,20 @@ Delta_Cast는 게임과 실제 ASIO 드라이버 사이에 들어가는 프록�
 [DebugView](https://learn.microsoft.com/sysinternals/downloads/debugview)를 켠 상태로 게임을 실행하면 `[Delta_Cast]`로 시작하는 로그가 출력됩니다.
 
 ```
-[Delta_Cast] [INFO] Mode: Proxy -> {...} | LatencyMode: 2
-[Delta_Cast] [INFO] Stream: 48000 Hz | Int32 | buffer 64 frames (1.33 ms) | out idx 2/3 (ch 0/1)
-[Delta_Cast] [INFO] WASAPI: CABLE Input (VB-Audio Virtual Cable) | 48000 Hz 2 ch 32-bit float | low-latency (IAudioClient3) | resample OFF
+[Delta_Cast] [INFO] Mode: Proxy -> {...} | LatencyMode: 2 
+[Delta_Cast] [INFO] Stream: 48000 Hz | Int32 | buffer 64 frames (1.33 ms) | out idx 2/3 (ch 0/1) 
+[Delta_Cast] [INFO] WASAPI: CABLE Input (VB-Audio Virtual Cable) | 48000 Hz 2 ch 32-bit float | low-latency (IAudioClient3) | resample ON | drift correction ON 
+[Delta_Cast] [INFO] Drift: -42.1 ppm (learned -40.2) | ring 21.3 ms (target 21.3 ms) | resync 0
 ```
 
 * `[ERR]`가 포함된 줄이 있으면 원인이 함께 기록됩니다.
 * `Virtual 모드로 대체합니다`가 보이면 선택한 ASIO 드라이버를 열지 못한 것입니다. 드라이버가 설치되어 있는지, 다른 프로그램이 장치를 사용 중인지 확인하세요.
 * 문제를 제보할 때는 `[Delta_Cast]` 로그를 함께 첨부해 주세요.
+* `Drift:` 줄은 1분마다 출력됩니다. `resync` 숫자가 계속 올라가면 송출 장치와의 클럭 차이가 보정 범위를 넘은 것이니 로그와 함께 제보해 주세요.
 
 ## 알려진 제한
 
-* 프록시 모드의 송출 경로에서 오디오 인터페이스와 송출 장치의 클럭 차이로 인해, 매우 긴 방송에서는 송출 소리가 조금씩 밀리거나 순간적으로 끊길 수 있습니다.
+* 클럭 드리프트 보정은 프록시 모드에서만 동작합니다.
 * 가상 모드가 게임에 보고하는 지연값은 실제 지연보다 작습니다.
 * 출력 채널은 앞의 2채널(스테레오)만 송출합니다.
 

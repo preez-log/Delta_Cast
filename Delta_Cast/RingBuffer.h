@@ -2,6 +2,9 @@
 #include <atomic>
 #include <vector>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 
 // ---------------------------------------------------------------------------
 // Lock-Free Ring Buffer

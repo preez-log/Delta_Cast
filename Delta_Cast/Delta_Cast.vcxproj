@@ -169,6 +169,7 @@
     <ClInclude Include="DeltaCastDriver.h" />
     <ClInclude Include="DeltaCastFactory.h" />
     <ClInclude Include="DeltaCastGuids.h" />
+    <ClInclude Include="DriftController.h" />
     <ClInclude Include="DriverBackend.h" />
     <ClInclude Include="Logging.h" />
     <ClInclude Include="resource.h" />

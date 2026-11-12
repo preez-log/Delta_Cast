@@ -60,7 +60,7 @@ public:
     ByteRingBuffer m_loopbackBufferR{ Config::RING_BUFFER_SIZE };
 
 	// --- 버퍼 스위치 트리거 ---
-    void TriggerBufferSwitch(long doubleBufferIndex);
+    void TriggerBufferSwitch(long doubleBufferIndex, ASIOBool directProcess = ASIOFalse);
 
     friend class VirtualBackend;
     friend class ProxyBackend;
@@ -112,7 +112,9 @@ private:
     std::wstring m_targetWasapiId;
     bool m_isVirtualMode = false;
 
-	// 레이턴시 모드 (기본: 1)
-    int m_latencyMode = 1;
+	// 레이턴시 모드 (기본: 2)
+    int m_latencyMode = 2;
 
+    // 클럭 드리프트 보정 (기본: 켬, Virtual 모드에서는 사용X)
+    bool m_driftCorrection = true;
 };

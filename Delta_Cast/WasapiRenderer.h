@@ -15,6 +15,7 @@
 #include <wrl/client.h>
 #include "RingBuffer.h"
 #include "Resampler.h"
+#include "DriftController.h"
 
 struct AudioDevice {
     std::wstring id;
@@ -30,9 +31,9 @@ public:
     std::vector<AudioDevice> GetOutputDevices();
 
     // 초기화 및 재생 시작
-    bool Start(ByteRingBuffer* pBufferL, ByteRingBuffer* pBufferR,
-        const std::wstring& deviceId,
-        ASIOSampleType sampleType, double inputSampleRate, size_t threshold);
+    bool Start(ByteRingBuffer* pBufferL, ByteRingBuffer* pBufferR,const std::wstring& deviceId,
+               ASIOSampleType sampleType, double inputSampleRate, size_t threshold,
+               size_t asioBlockFrames, bool driftCorrection);
     // 재생 중지
     void Stop();
 
@@ -65,6 +66,11 @@ private:
 
     Resampler m_resamplerL;
     Resampler m_resamplerR;
+
+    // 클럭 드리프트 보정
+    DriftController m_drift;
+    bool m_driftEnabled = false;
+    size_t m_asioBlockFrames = 0;
 
     // 임시 버퍼
     std::vector<uint8_t> m_rawTempL, m_rawTempR;

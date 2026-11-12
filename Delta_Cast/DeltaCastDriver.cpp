@@ -212,7 +212,8 @@ void CDeltaCastDriver::LoadConfiguration() {
 
     WCHAR wasapiIdBuf[256] = { 0 };
     GetPrivateProfileStringW(L"Settings", L"TargetWasapiID", L"", wasapiIdBuf, 256, configPath.c_str());
-    m_latencyMode = GetPrivateProfileIntW(L"Settings", L"LatencyMode", 1, configPath.c_str());
+    m_latencyMode = GetPrivateProfileIntW(L"Settings", L"LatencyMode", 2, configPath.c_str());
+    m_driftCorrection = GetPrivateProfileIntW(L"Settings", L"DriftCorrection", 1, configPath.c_str()) != 0;
     m_targetWasapiId = wasapiIdBuf;
 
     // 모드 선택
@@ -352,7 +353,7 @@ size_t CDeltaCastDriver::GetLoopbackThreshold() const {
     case 2:  return 4096;
     case 3:  return 2048;
     case 4:  return 1024;
-    default: return 8192;
+    default: return 4096;
     }
 }
 
@@ -388,7 +389,10 @@ ASIOError CDeltaCastDriver::start() {
         LogInfo("Loopback prebuffer: %zu bytes (%.1f ms)", threshold, thresholdMs);
     }
 
-    m_renderer.Start(&m_loopbackBufferL, &m_loopbackBufferR, m_targetWasapiId, m_sampleType, m_sampleRate, threshold);
+    // 가상모드는 드리프트 보정 X
+    const bool driftCorrection = m_driftCorrection && !m_isVirtualMode;
+    m_renderer.Start(&m_loopbackBufferL, &m_loopbackBufferR, m_targetWasapiId, m_sampleType, m_sampleRate, threshold,
+        (size_t)m_bufferSize, driftCorrection);
     return m_backendImpl->Start();
 }
 
@@ -424,10 +428,10 @@ ASIOError CDeltaCastDriver::disposeBuffers() {
 // ---------------------------------------------------------------------------
 // 오디오 처리
 // ---------------------------------------------------------------------------
-void CDeltaCastDriver::TriggerBufferSwitch(long index) {
+void CDeltaCastDriver::TriggerBufferSwitch(long index, ASIOBool directProcess) {
     // 호스트 콜백
     if (m_hostCallbacks.bufferSwitch) {
-        m_hostCallbacks.bufferSwitch(index, ASIOFalse);
+        m_hostCallbacks.bufferSwitch(index, directProcess);
     }
     // 오디오 복제 및 변환
     CopyAudioToRingBuffer(index);
@@ -435,7 +439,7 @@ void CDeltaCastDriver::TriggerBufferSwitch(long index) {
 
 // 정적 래퍼들
 void CDeltaCastDriver::bufferSwitch(long index, ASIOBool directProcess) {
-    if (auto* p = g_pThis.load()) p->TriggerBufferSwitch(index);
+    if (auto* p = g_pThis.load()) p->TriggerBufferSwitch(index, directProcess);
 }
 ASIOTime* CDeltaCastDriver::bufferSwitchTimeInfo(ASIOTime* timeInfo, long index, ASIOBool processNow) {
     ASIOTime* result = nullptr;

@@ -157,6 +157,9 @@ public:
     ASIOError OutputReady() override { return m_backend->outputReady(); }
     ASIOError ControlPanel() override { return m_backend->controlPanel(); }
     ASIOError SetClockSource(long ref) override { return m_backend->setClockSource(ref); }
+    ASIOError GetClockSources(ASIOClockSource* clocks, long* numSources) override {
+        return m_backend->getClockSources(clocks, numSources);
+    }
     ASIOError GetLatencies(long* inputLatency, long* outputLatency) override {
         return m_backend->getLatencies(inputLatency, outputLatency);
     }
@@ -166,6 +169,7 @@ public:
     ASIOError Future(long selector, void* opt) override {
         return m_backend->future(selector, opt);
     }
+    void GetErrorMessage(char* string) override { m_backend->getErrorMessage(string); }
 
 private:
     IASIO* m_backend = nullptr;

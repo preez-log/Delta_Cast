@@ -38,6 +38,9 @@ Game ──▶ Delta_Cast ──▶ Real ASIO driver ──▶ Headphones/Speake
     - On Windows 10 and later, the WASAPI low-latency shared mode (`IAudioClient3`) is used automatically.
     - Devices that do not support it fall back to the standard shared mode.
     - If the broadcast device's sample rate differs from the game's, the built-in resampler converts it.
+* **Clock drift correction (v1.3.2+)**
+    - Broadcast latency no longer grows and the audio no longer drops out, even during long streams.
+    - Enabled by default. To turn it off, add `DriftCorrection=0` under `[Settings]` in `Delta_Cast.ini`.
 * **Wide format support**
     - ASIO sample formats: Int16 / Int24 / Int32 / Float32 / Float64
     - Supports both 64-bit (`Delta_Cast.dll`) and 32-bit (`Delta_Cast_x86.dll`) games
@@ -70,6 +73,11 @@ This is the buffer size of the broadcast path. It does not affect game audio lat
 
 If the broadcast audio stutters, raise the mode one step at a time. A constant offset can be compensated with OBS's audio sync offset.
 
+> **Virtual cable setup tip**
+> If you use VB-CABLE, set the format of both `CABLE Input` (playback) and `CABLE Output` (recording) to **48000 Hz** in the Windows sound settings.
+> Any other value makes the cable convert the sample rate internally, which can roll off the high frequencies of the broadcast audio.
+> Keep the cable at 48 kHz even if the game's ASIO sample rate is not 48 kHz. Delta_Cast handles the conversion automatically.
+
 ## Usage
 
 1. Launch your rhythm game.
@@ -78,7 +86,7 @@ If the broadcast audio stutters, raise the mode one step at a time. A constant o
 
 ## Updating
 
-1. Close the game.
+1. Close the game. (A running game keeps using the previous version until it is closed.)
 2. Overwrite the existing files with the new version.
 3. If the install location has not changed, there is no need to register again. Your settings are kept.
 
@@ -89,16 +97,18 @@ Run the game with [DebugView](https://learn.microsoft.com/sysinternals/downloads
 ```
 [Delta_Cast] [INFO] Mode: Proxy -> {...} | LatencyMode: 2
 [Delta_Cast] [INFO] Stream: 48000 Hz | Int32 | buffer 64 frames (1.33 ms) | out idx 2/3 (ch 0/1)
-[Delta_Cast] [INFO] WASAPI: CABLE Input (VB-Audio Virtual Cable) | 48000 Hz 2 ch 32-bit float | low-latency (IAudioClient3) | resample OFF
+[Delta_Cast] [INFO] WASAPI: CABLE Input (VB-Audio Virtual Cable) | 48000 Hz 2 ch 32-bit float | low-latency (IAudioClient3) | resample ON | drift correction ON
+[Delta_Cast] [INFO] Drift: -42.1 ppm (learned -40.2) | ring 21.3 ms (target 21.3 ms) | resync 0
 ```
 
 * Lines containing `[ERR]` include the cause of the error.
 * If you see the fallback-to-Virtual message, the selected ASIO driver could not be opened. Check that the driver is installed and that no other program is using the device.
 * When reporting an issue, please attach the `[Delta_Cast]` log lines.
+* The `Drift:` line is printed once a minute. If the `resync` count keeps rising, the clock difference to the broadcast device is beyond the correction range. Please report it together with the log.
 
 ## Known Limitations
 
-* Because the audio interface and the broadcast device run on separate clocks, the broadcast audio may gradually fall behind or briefly drop out during very long streams.
+* Clock drift correction works in proxy mode only.
 * In virtual mode, the latency reported to the game is lower than the actual latency.
 * Only the first two output channels (stereo) are broadcast.
 

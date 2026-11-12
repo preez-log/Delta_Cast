@@ -117,16 +117,84 @@ void ScanWasapiDevices() {
     pEnumerator->Release();
 }
 
-// INI 파일에 저장
-bool SaveConfig(const std::wstring& asioClsid, const std::wstring& wasapiId, int latencyMode) {
+// INI 파일 경로 (exe와 같은 폴더)
+std::wstring GetConfigPath() {
     WCHAR path[MAX_PATH];
     GetModuleFileName(NULL, path, MAX_PATH);
     std::wstring configPath = path;
-    configPath = configPath.substr(0, configPath.find_last_of(L"\\/") + 1) + L"Delta_Cast.ini";
+    return configPath.substr(0, configPath.find_last_of(L"\\/") + 1) + L"Delta_Cast.ini";
+}
+
+// INI 파일에 저장
+bool SaveConfig(const std::wstring& asioClsid, const std::wstring& wasapiId, int latencyMode) {
+    const std::wstring configPath = GetConfigPath();
     std::wstring modeStr = std::to_wstring(latencyMode);
     WritePrivateProfileString(L"Settings", L"TargetDriverCLSID", asioClsid.c_str(), configPath.c_str());
     WritePrivateProfileString(L"Settings", L"TargetWasapiID", wasapiId.c_str(), configPath.c_str());
     return WritePrivateProfileString(L"Settings", L"LatencyMode", modeStr.c_str(), configPath.c_str());
+}
+
+// 저장된 설정 불러오기
+bool LoadConfigToUI() {
+    const std::wstring configPath = GetConfigPath();
+    if (GetFileAttributes(configPath.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+
+    WCHAR asioClsid[64] = { 0 };
+    WCHAR wasapiId[256] = { 0 };
+    GetPrivateProfileString(L"Settings", L"TargetDriverCLSID", L"", asioClsid, 64, configPath.c_str());
+    GetPrivateProfileString(L"Settings", L"TargetWasapiID", L"", wasapiId, 256, configPath.c_str());
+    int latencyMode = (int)GetPrivateProfileInt(L"Settings", L"LatencyMode", 2, configPath.c_str());
+
+    bool asioFound = false;
+    for (size_t i = 0; i < g_asioList.size(); i++) {
+        if (_wcsicmp(g_asioList[i].id.c_str(), asioClsid) == 0) {
+            SendMessage(hComboAsio, CB_SETCURSEL, (WPARAM)i, 0);
+            asioFound = true;
+            break;
+        }
+    }
+
+    // 빈 ID는 목록 첫 항목(Default Windows Output)과 일치
+    bool wasapiFound = false;
+    for (size_t i = 0; i < g_wasapiList.size(); i++) {
+        if (_wcsicmp(g_wasapiList[i].id.c_str(), wasapiId) == 0) {
+            SendMessage(hComboWasapi, CB_SETCURSEL, (WPARAM)i, 0);
+            wasapiFound = true;
+            break;
+        }
+    }
+
+    if (latencyMode < 0 || latencyMode > 4) latencyMode = 2;
+    SendMessage(hComboLatency, CB_SETCURSEL, (WPARAM)latencyMode, 0);
+
+    if (asioFound && wasapiFound) {
+        SetWindowText(hStatus, L"Status: Current configuration loaded.");
+        return true;
+    }
+    SetWindowText(hStatus, L"Status: Saved device not found. Select and save again.");
+    return false;
+}
+
+// regsvr32를 실행하고 끝날 때까지 대기 후 종료 코드 확인
+bool RunRegsvr32(const std::wstring& regsvrPath, const std::wstring& params, DWORD& exitCode) {
+    exitCode = (DWORD)-1;
+
+    SHELLEXECUTEINFO sei = { 0 };
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"open";
+    sei.lpFile = regsvrPath.c_str();
+    sei.lpParameters = params.c_str();
+    sei.nShow = SW_HIDE;
+    if (!ShellExecuteEx(&sei) || !sei.hProcess) return false;
+
+    bool ok = false;
+    if (WaitForSingleObject(sei.hProcess, 15000) == WAIT_OBJECT_0 &&
+        GetExitCodeProcess(sei.hProcess, &exitCode)) {
+        ok = (exitCode == 0);
+    }
+    CloseHandle(sei.hProcess);
+    return ok;
 }
 
 // 드라이버 등록 / 해제
@@ -147,6 +215,7 @@ void RunDriverCommand(HWND hWnd, bool install) {
     };
 
     bool anyFound = false;
+    int failCount = 0;
     std::wstring msg = L"";
 
     for (const auto& target : targets) {
@@ -172,10 +241,14 @@ void RunDriverCommand(HWND hWnd, bool install) {
             params += dllPath + L"\"";
 
             // 관리자 권한으로 실행
-            HINSTANCE hRes = ShellExecute(NULL, L"open", regsvrCmd.c_str(), params.c_str(), NULL, SW_HIDE);
-
-            if ((intptr_t)hRes <= 32) {
-                msg += target.filename + L": Failed\n";
+            DWORD exitCode = 0;
+            if (RunRegsvr32(regsvrCmd, params, exitCode)) {
+                msg += target.filename + L": OK\n";
+            }
+            else {
+                failCount++;
+                if (exitCode == (DWORD)-1) msg += target.filename + L": Failed (could not run regsvr32, or it timed out)\n";
+                else msg += target.filename + L": Failed (regsvr32 exit code " + std::to_wstring(exitCode) + L")\n";
             }
         }
     }
@@ -184,13 +257,19 @@ void RunDriverCommand(HWND hWnd, bool install) {
         return;
     }
 
+    if (failCount > 0) {
+        SetWindowText(hStatus, install ? L"Status: Driver registration failed." : L"Status: Driver removal failed.");
+        MessageBox(hWnd, msg.c_str(), install ? L"Registration Failed" : L"Removal Failed", MB_ICONERROR);
+        return;
+    }
+
     if (install) {
         SetWindowText(hStatus, L"Status: Drivers Registered!");
-        MessageBox(hWnd, L"Driver Setup Complete!\n(x86, x64 both)", L"Success", MB_ICONINFORMATION);
+        MessageBox(hWnd, (L"Driver Setup Complete!\n\n" + msg).c_str(), L"Success", MB_ICONINFORMATION);
     }
     else {
         SetWindowText(hStatus, L"Status: Drivers Unregistered.");
-        MessageBox(hWnd, L"Drivers Removed.", L"Info", MB_ICONINFORMATION);
+        MessageBox(hWnd, (L"Drivers Removed.\n\n" + msg).c_str(), L"Info", MB_ICONINFORMATION);
     }
 }
 
@@ -199,10 +278,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     switch (message) {
     case WM_CREATE:
         {
-            // 설명 텍스트
-            CreateWindow(L"STATIC", L"Select ASIO hardware to use:",
-                WS_CHILD | WS_VISIBLE,
-                20, 20, 300, 20, hWnd, NULL, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
 
             // 폰트 설정 (기본 시스템 폰트)
             HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
@@ -265,6 +340,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             // 첫 번째 항목 선택
             SendMessage(hComboAsio, CB_SETCURSEL, 0, 0);
             SendMessage(hComboWasapi, CB_SETCURSEL, 0, 0);
+
+            // 저장된 설정로드, 그대로 쓸 수 있으면 Init 버튼도 활성화
+            if (LoadConfigToUI()) EnableWindow(hBtnInit, TRUE);
         }
         break;
 
@@ -315,7 +393,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
     RegisterClassExW(&wcex);
 
     // 윈도우 생성
-    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config" DC_VER_STRING,
+    HWND hWnd = CreateWindowW(L"ConfigCls", L"Delta_Cast Config " DC_VER_STRING,
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, 
         0, 400, 350, NULL, NULL, hInstance, NULL);
     ShowWindow(hWnd, nCmdShow);
